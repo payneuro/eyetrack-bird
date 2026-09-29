@@ -58,7 +58,7 @@ end
 if (resume_eye && flag_newdata) || ~exist(fullfile(filepath_eye,'eye_triangulate.mat'),'file')
     p_cornea = NaN(N_eye, 3);
     p_pupil = NaN(N_eye, 3);
-    Ef = E;
+    Ef = uncropEyeCoords(E, p); % tracking ran on cropped images; triangulation needs full-frame pixels
     nanmask = ~isnan(Ef.pupil1(:,1)) & ~isnan(Ef.cr1(:,1,2)) & ~isnan(Ef.pupil2(:,1)) & ~isnan(Ef.cr2(:,1,2));
     [p_cornea(nanmask,:), p_pupil(nanmask,:)] = estimatepandc(...
         C.stereo_params, C.p_light1, C.p_light2,...
