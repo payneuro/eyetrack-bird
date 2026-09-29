@@ -1,134 +1,284 @@
 # eyetrack-bird
-eye tracking code for dual camera video oculography + rigid body head tracking in freely moving birds
 
-Cameras: Blackfly S BFS-U3-27S5M (2.8 MP monochrome 2/3" sensor. Note: higher resolution would be helpful but this is enough) 
-Lenses: Edmund Optics 25mm/F1.4 59871
-IR LEDs: LST1-01H01-IR01-01 LUXEON IR Domed 850n
- (Note: upgrade to Mouser 720-SFH4717ASAA1518 Infraret Oslon osram LEDs on custom Starboard v2 PCB for shorter exposure times?)
-Mirror: mirrored on outer surface, Thorlabs ME2S-P01 
+Dual-camera video oculography plus rigid-body head tracking for freely moving birds.
 
+Two calibrated cameras and two IR lights give the 3D pupil center and the center of
+corneal curvature on every frame (Barsingerhorn, Boonstra & Goossens 2018, *Behav Res
+Meth*). A Qualisys (QTM) rigid body on the head gives head pose. Combining the two gives
+each eye's position and optical axis in the head frame, without the animal having to
+fixate calibration targets.
 
-# Protocol: calibration
-My calibrations  are saved here: Z:\Hannah\eyetrack\calibration
-	1. Set up flat surface and camera module. Plug LEDs into 5 V, 2 A power supply
-	2. Set QTM exposure time to 50-80 us (to avoid reflections in eye)
-	3. Calibrate QTM
-	4. Open SpinView software. Check which camera is left (22048634 - cam1) and right (21554508 - cam2) and arrange accordingly
-	5. Settings - repeat for both cameras!!:
-		○ Set Features > Stream Parameters > Buffer Handling Control > Stream Buffer Handling Mode to Oldest First to avoid dropped frames. NOTE: this setting doesn't seem to get saved between sessions
+Contents: [Hardware](#hardware) · [Software](#software) · [Folder layout](#folder-layout) ·
+[1. Camera settings](#1-camera-settings-spinview) · [2. Calibration](#2-calibration-capture) ·
+[3. Recording setup](#3-recording-setup-qtm) · [4. Recording](#4-recording) ·
+[5. Analysis](#5-analysis-matlab) · [Coordinate frames](#coordinate-frames) ·
+[Troubleshooting](#troubleshooting) · [Ground-truth experiment](#ground-truth-experiment)
 
-		○ Set up trigger on Rising edge of TTL pulse: (under Features > Blackfly S BFS-U3-27S5M > Acquisition Control). Optional: set Delay to at least the duration of the QTM exposure (50 us)
+---
 
-		○ Set Settings> Exposure Mode: Timed (ideally make this shorter than the QTM frame interval (e.g. 50 hz -> 18000 us) to avoid  interference from overhead lights)
+## Hardware
 
-		○ (Optional) Gain Conversion HCG (High Conversion Gain):
+| Part | Model | Notes |
+|---|---|---|
+| Cameras (2) | Blackfly S BFS-U3-27S5M | 2.8 MP mono, 2/3". Serial **22048634 = cam1 (LEFT)**, **21554508 = cam2 (RIGHT)** |
+| Lenses (2) | Edmund Optics 25 mm f/1.4, #59871 | |
+| IR LEDs (2) | LUXEON IR Domed 850 nm, LST1-01H01-IR01-01 ([Mouser 416-LST101H01IR0101](https://www.mouser.com/ProductDetail/416-LST101H01IR0101)) | Light 1 = LEFT, light 2 = RIGHT |
+| LED power | 5 V, 2 A supply; 2× 2 Ω ≥3 W resistors | See wiring below |
+| Mirror | Thorlabs ME2S-P01 (front-surface silver) | For locating the LEDs. Thickness is set in `calibrateLights.m` (`mirror_thickness = -0.1` mm) |
+| Checkerboard | Uneven size (e.g. ≥4×5 squares), **4 mm squares** | Square size is hard-coded in `calibrateCameras.m` (`square_size = 4`) |
+| Axes triangle | 3 passive IR markers on a right triangle | Labeled `p0` (right-angle corner), `px` (long edge), `py` (short edge); mounted tilted 45° so both QTM and the eye cameras see it |
+| Head tracking | Qualisys motion capture + head marker rigid body | Rigid body must be the first one in the QTM export |
 
-		○ Save as User Set (maybe the same as clicking this button for each camera while stopped under Devices?): 
+**LED wiring.** 5 V → switch → 2 Ω resistor → LED → GND, and a second resistor + LED
+branch in parallel. A red indicator LED with a small series resistor shows power. Blue
+lead = V+, orange = V−.
 
-		○ [To reduce frame buffering: go to Task Manager>Details pane>Right click on spinview.exe and set Priority High]
+**Custom LED boards (made 2/2023, never used).** Starboard PCB `Starboard_2022-08-30.zip`
+from PCBway, 19.9 × 20.2 × 1.6 mm, for OSRAM Oslon SFH 4717AS A01 high-power IR emitters
+(Mouser 720-SFH4717ASAA1518). These might allow shorter exposures. Assembly: mark the
+notch corner of each emitter with a silver marker dot before placing it on the board.
 
-		
-	6. Create a new folder \Hannah\dualcamera\calibration\220310 and copy the subfolders from the template into it
-	7. Place checkerboard in view. Take 5 images of a checkerboard in different orientations, simultaneously with both cameras, save as: e.g. Z:\Hannah\dualcamera\calibration\220310\cam1\1.bmp etc.
-	8. Place mirror in view. Take images of one IR light (1 = left, 2 = right) at a time, seen simultaneously in both cameras. Save in calibration\220310\lights (total 8 images). For each combination of camera/light source, take two photos:
-		a. First with the exposure high (e.g. 6000 ms) to see checkerboard:
-cam1_light1_checkerboard.bmp
-		b. Then with exposure set to the minimum (19 ms) to see just a point of light:
-		cam1_light1.bmp
-	9. Place triangle of passive IR markers in view.  Adjust gain so markers are saturated (e.g. 80000). If difficult, can position LED lamp on stepstool behind cameras so that reflectors are directly illuminated.
-		- Record a short segment in QTM: calibration\220310\axes\qtm.qtm.
-Label markers as p0, px, py and File > Export 3D coordinates to matlab as qtm.mat
-		- Record with the cameras (\axes\cam1.bmp and cam2.bmp). Double check that you have recorded both in qtm and with cameras!
+## Software
 
+- MATLAB with Computer Vision, Image Processing, Signal Processing, Statistics, and Curve
+  Fitting toolboxes.
+- SpinView (Spinnaker SDK) for the Blackfly cameras.
+- Qualisys Track Manager (QTM).
+- Optional: PI MikroMove for the M-660 rotation stage (ground-truth experiment only).
 
-## In Matlab:
-Process calibration to check it is ok:
-addpath(fullfile('C:\Users\Hannah\Dropbox\alab\Code\eyetrack-bird\src'))
-filepath_camera = 'Z:\Hannah\eyetrack\calibration\231212';
-[C,A] = calibrateCameras(filepath_camera);
-(In RUNME.m)
+## Folder layout
 
+Calibrations live in `Z:\Hannah\eyetrack\calibration\<YYMMDD>`, recordings in
+`Z:\Hannah\eyetrack\behavior\<BIRD>_<YYMMDD>[a|b|...]`. The code finds a session's
+calibration by the six digits after the **last underscore** in the session folder name,
+so the calibration folder must be named with the recording date.
 
+```
+calibration\231212\
+  cam1\  1.bmp 2.bmp ...        checkerboard images, camera 1 (4–10 images)
+  cam2\  1.bmp 2.bmp ...        same poses, camera 2 (same file names)
+  lights\
+    cam1_light1.bmp             min exposure: only the LED spot, saturated (255)
+    cam1_light1_checkerboard.bmp  long exposure: checkerboard on the mirror
+    cam1_light2.bmp  cam1_light2_checkerboard.bmp
+    cam2_light1.bmp  cam2_light1_checkerboard.bmp
+    cam2_light2.bmp  cam2_light2_checkerboard.bmp
+  axes\
+    cam1.bmp  cam2.bmp          axes triangle, markers saturated
+    qtm.mat                     QTM export with labeled markers p0, px, py
+  calib.mat  axes.mat           written by calibrateCameras (delete to re-run)
 
-## Example output:
-checkerboard	
-	
+behavior\HC13_230525\
+  cam1*.avi  cam2*.avi          eye videos
+  qtm.mat                       QTM 6DOF export (variable name qtm)
+  beak.mat  eye.mat  eye_triangulate.mat              written by the pipeline
+  head_calibration.mat  head_calibration_template.mat  results
+```
 
+---
 
+## 1. Camera settings (SpinView)
 
-light	
-	
+Do this for **both** cameras.
 
-axes	
-	
+1. Plug the LEDs into the 5 V supply. Set up the flat surface and camera module.
+2. Open SpinView and confirm which camera is which: **22048634 = cam1 = left**,
+   **21554508 = cam2 = right**.
+3. *Features > Stream Parameters > Buffer Handling Control > Stream Buffer Handling Mode*
+   = **Oldest First** (prevents dropped frames). This doesn't persist between sessions,
+   so check it every time.
 
+   <img src="docs/img/spinview_buffer.png" width="450">
 
+4. *Features > Blackfly S BFS-U3-27S5M > Acquisition Control*: trigger on the rising
+   edge of the QTM TTL (Trigger Mode On, Source Line 3, Activation Rising Edge). Set
+   Trigger Delay ≥ the QTM exposure (≥50 µs; 100 µs shown).
 
+   <img src="docs/img/spinview_trigger.png" width="450">
 
-## Recording set up
-	1. Set QTM to require space bar pressed to start recording (Project Options (gear icon)>Input Devices>Camera System>Synchronization>Wireless/software Trigger>Function=>Start capture)
+5. Exposure Mode **Timed**, Exposure Auto **Off**. Keep exposure shorter than the frame
+   interval to avoid flicker from room lights (50 Hz → ≤18000 µs).
 
-	2. Scroll down and set QTM Out2 to trigger frames (Project Options>Input Devices>Camera System>Synchronization>Out 2) (e.g. record at 300 fps, but trigger 1/6 of the frames to result in 50Hz video tracking. Set TTL signal polarity Positive. (Currently: Duty cycle doesn't matter. TODO: Set Duty Cycle so that the Pulse Duration equals the Exposure & Flash time?)
-	Set exposure time to at least 2 ms less than the ideal frame rate interval (e.g. 14000 us for 60 Hz, 17000 for 50 Hz)
+   <img src="docs/img/spinview_exposure.png" width="450">
 
-	3. Set up cameras in SpinView to trigger on event input as above ("Set up trigger on QTM TTL pulse")
-	
-## Recording
-	1. ***Don't move anything after axes calibration!***
-	2. Place bird in arena with food in front of perch, and markers on head
-	3. Click Record in QTM and set correct folder and filename ("Z:\Hannah\eyetrack\behavior\HC13_230525", "qtm.mat"). Don't Start yet
-	4. In SpinView, Click Record button for each camera. 
-		- Set filename (IND102_220618\cam1 etc - if saving as raw image save to local SSD)
-		- Save Options: Capture 0 Frames (0=inf).
-		- Click Video tab, set correct Framerate (50 Hz)
-		- Mjpeg, Quality 80 (or H264, quality 10,000,000,  (default is 1,000,000))
-	5. Hit Record in QTM. Don't press space bar yet
-	6. Check exposure settings: Max 1/fps 1000/50 = 20 ms. e.g. 18000, gain 10
-	7. Hit record for both cameras in Spinnaker
-	8. Then press space bar in QTM to synchronize
+6. Optional: *Analog Control > Gain Conversion* = **HCG**.
 
-Note: Saving in SpinView may fail after a few minutes due to memory usage. 
-If it seems to freeze, don't force quit! Ctrl+Shift+Esc and bring the error windows to the front and hit ok. Make sure to stop QTM recording first. 
-	
-In Matlab:
-cd C:\Users\Hannah\Dropbox\alab\Code\eyetrack-bird\scripts
+   <img src="docs/img/spinview_hcg.png" width="450">
 
+7. Save as a User Set.
+8. To reduce frame buffering: Task Manager > Details > right-click `SpinView.exe` >
+   Set priority > High.
 
-	
-# Troubleshooting: check 
+## 2. Calibration capture
 
+Don't move the cameras, lights, or QTM cameras after this. Save everything to a new
+folder `Z:\Hannah\eyetrack\calibration\<YYMMDD>` with the subfolders shown in
+[Folder layout](#folder-layout).
 
+1. Set the QTM exposure to 50–80 µs so the QTM strobes don't reflect in the eye.
+2. Calibrate QTM (wand + L-frame).
+3. **Checkerboard.** Take 4–10 simultaneous image pairs of the checkerboard in different
+   positions and orientations. Save as `cam1\1.bmp`, `cam2\1.bmp`, etc.
+4. **Lights.** Put the mirror in view with one LED on at a time. For each of the 4
+   camera/light combinations take two images without moving anything:
+   - high exposure (e.g. 6000 µs) so the checkerboard on the mirror is visible:
+     `cam1_light1_checkerboard.bmp`
+   - minimum exposure (19 µs) so only the LED's reflection shows, saturated:
+     `cam1_light1.bmp`
+5. **Axes.** Put the axes triangle in view. Raise gain until the markers saturate. If
+   that's hard, light the markers directly with a lamp behind the cameras.
+   - Record a short QTM segment as `axes\qtm.qtm`. Label markers `p0`, `px`, `py`, then
+     *File > Export > MAT* as `axes\qtm.mat`.
+   - Save one image per camera as `axes\cam1.bmp` and `axes\cam2.bmp`.
+   - Check that you have both the QTM file and the camera images before moving on.
 
+   <img src="docs/img/axes_images.png" width="600">
 
-Note:
-Type	Frames before failure	Resource usage
-Mpeg, Quality 80	7500 frames	CPU ~50%, disk low
-Mpeg, Quality 90	7100 frames	CPU ~50%, disk low
-H264, Bitrate 8,000,000	3400 frames	CPU ~100%, disk low
-Uncompressed (.tiff)	1900 frames	
-		
+6. Check the calibration in MATLAB (see [5. Analysis](#5-analysis-matlab), step 1).
 
+## 3. Recording setup (QTM)
 
-# Protocol: analysis
-	1. Run D:\hannah\Dropbox\alab\Code\project2\eye\runEyetrackCalib.m
-	2. Run __ to analyze eyes
-	3. Adjust parameters as needed after selecting a good first frame
-	4. Select the beak in each image pair, Collect at least 5-10 images in different configurations
+1. Make QTM wait for the space bar to start: *Project Options > Input Devices > Camera
+   System > Synchronization > Wireless/software Trigger > Function* = **Start capture**.
 
-Ground truth experiment
-	- Using M660 stage
-	- Software here: https://www.pi-usa.us/en/products/precision-motion-controllers-and-drivers-for-positioning-systems/c-8672u2-piline-motion-controller-412418438#downloads
-	- See paper for other methods
-	- To run bird:
-		- Prepare anesthetics, saline in syringe, surgical tools, eye spear, dental rubber bands and applicator, set up motor software +  rigid body markers on motor + calibrate QTM/set up to record
-		- Anesthetize with iso + K+X (normal dose, 0.1 ml each)
-		- Put in 3D printed ear bars in surgery room
-		- Bring here, position in place. Set up motor sequence.
-		- If still alive, overdose with another dose
-		- Once death is confirmed, cut away skin around one eye using forceps and serrated scissors. Avoid getting feathers in eye or needing to wipe. If necessary, wipe very gently with pre-moistened eye spear
-		- Record in 1 deg increments, +- 25 deg. Start qualisys and start video cameras as above, then start motor sequence. Run it 5-6 times in both directions. 
-		- Repeat on other eye.
+   <img src="docs/img/qtm_sync.png" width="650">
 
+2. Same page, **Out 2**: Mode = Frequency divisor, TTL polarity Positive. QTM frame rate
+   ÷ divisor = eye-camera frame rate (e.g. 300 Hz ÷ 6 = 50 Hz). This divisor is the
+   `downsample_eye` value used in analysis. Duty cycle doesn't matter.
 
+   <img src="docs/img/qtm_out2.png" width="400">
 
-<img width="1388" height="7302" alt="image" src="https://github.com/user-attachments/assets/7171d3b2-1069-4b03-bfba-880b21d7bec5" />
+3. Set camera exposure at least 2 ms below the frame interval (14000 µs at 60 Hz, 17000
+   µs at 50 Hz). Set the cameras to trigger on the TTL as in section 1.
+
+## 4. Recording
+
+1. **Don't move anything after the axes calibration.**
+2. Place the bird in the arena with head markers on and food in front of the perch.
+3. In QTM click Record, set the folder and file name
+   (`Z:\Hannah\eyetrack\behavior\HC13_230525\qtm`). Don't start yet.
+4. In SpinView click Record for each camera:
+   - File name `...\HC13_230525\cam1`, `...\cam2` (save raw images to the local SSD).
+   - Capture 0 frames (= unlimited).
+   - Video tab: frame rate 50 Hz, MJPEG quality 80 (or H264, bitrate 10,000,000).
+5. Hit Record in QTM. Don't press the space bar yet.
+6. Check exposure (≤ 1/fps, e.g. 18000 µs at 50 Hz) and gain (e.g. 10).
+7. Hit Record for both cameras in SpinView.
+8. Press the space bar in QTM. The cameras only capture frames while QTM sends TTLs,
+   so this synchronizes everything.
+9. Stop QTM first, then the cameras. Export the QTM file with the head rigid body to
+   `qtm.mat` (6DOF).
+
+## 5. Analysis (MATLAB)
+
+All steps are in [`scripts/RUNME.m`](scripts/RUNME.m). Paths at the top of
+`RUNME.m`, `runEyetrackSingle.m`, and `runEyetrackAll.m` point at `Z:\Hannah\eyetrack`;
+edit them if your data lives elsewhere.
+
+1. **Process the calibration.**
+   ```matlab
+   addpath('C:\Users\Hannah\Dropbox\_LAB\Code\eyetrack-bird\src')
+   [C, A] = calibrateCameras('Z:\Hannah\eyetrack\calibration\231212');
+   ```
+   Check the figures against the examples below: mean reprojection error well under 1
+   px, LED spots found in all four images, triangle markers sorted red = `p0`,
+   green = `px`, blue = `py`, and matching QTM and camera distances printed in the
+   command window. Results are cached in `calib.mat` and `axes.mat`; delete them to
+   re-run. To inspect or prune bad checkerboard pairs by hand, open MATLAB's Stereo
+   Camera Calibrator app (`stereoCameraCalibrator`) on the `cam1` and `cam2` folders.
+
+2. **Track one session** (`runEyetrackSingle(session_folder, downsample_eye)`) or all
+   sessions for a bird (`runEyetrackAll('Z:\...\behavior\HC13_2*', downsample_eye, 1)`).
+   For each session this:
+   1. Asks you to click the beak tip in cam1 then cam2 every 45 frames. Collect 5–10
+      pairs with the head in different poses. Right-click skips ahead, Enter finishes.
+      Saved to `beak.mat` (only asked for the first session of a bird).
+   2. Tracks pupil and both corneal reflections in every frame. Tracker settings are in
+      `processEyetrack.m` (`radiiPupil`, `pupil_intensity`, `iris_intensity`, `cropX`,
+      `cropY`, ...). Check the first-frame preview, and if the fit is poor, stop, edit
+      the settings, delete `eye.mat`, and restart. Progress saves every 100 frames, and
+      re-running resumes.
+   3. Triangulates pupil, cornea, and beak, converts to the common frame, and fits the
+      head/eye geometry.
+
+3. **Summarize across birds**: `plotEyetrack(data_root, dir_roots)`.
+
+To re-run a step, delete its cached file: `calib.mat`/`axes.mat` (calibration),
+`beak.mat` (beak clicks), `eye.mat` (tracking), `eye_triangulate.mat` (3D points).
+
+### Example calibration output
+
+Checkerboard (stereo calibration and reprojection error):
+
+<img src="docs/img/out_checkerboard.png" width="700">
+
+Lights (LED spot and mirror checkerboard per image; right, top-down view of cameras in
+cyan and lights in red/magenta):
+
+<img src="docs/img/out_lights.png" width="700">
+
+Axes (triangle markers in each camera; right, the triangle as seen by QTM and by the eye
+cameras, before and after the 45° correction):
+
+<img src="docs/img/out_axes.png" width="700">
+
+## Coordinate frames
+
+- **Camera frame** (`C`, `estimatepandc`): origin at camera 1's optical center, x along
+  image columns, y down image rows, z along the optical axis away from the cameras. mm.
+- **Common frame** (`alignCommonReferenceFrame`): defined by the axes triangle, origin at
+  `p0`, x toward `px`, rotated 45° about x so z is vertical. Both camera and QTM data are
+  mapped into it.
+- **Head frame** (`H.R_head`, relative to the QTM rigid body): x from the midpoint of the
+  eyes to the beak tip, y toward the left eye (orthogonalized), z up.
+- **Angles** (`Ht`): `theta = atan2d(y, x)` is azimuth, `phi = acosd(z / r)` is the polar
+  angle from +z, so elevation = 90° − phi. Converting back:
+  `x = r·sin(phi)·cos(theta)`, `y = r·sin(phi)·sin(theta)`, `z = r·cos(phi)`.
+  (If you use elevation `el = 90° − phi` instead: `x = r·cos(el)·cos(theta)`,
+  `y = r·cos(el)·sin(theta)`, `z = r·sin(el)`.)
+
+## Troubleshooting
+
+- **SpinView stops saving after a few minutes** (memory). If it seems frozen, don't
+  force-quit. Stop QTM first, then press Ctrl+Shift+Esc, bring the error windows to the
+  front, and click OK. Frames recorded before failure in testing:
+
+  | Format | Frames before failure | Resources |
+  |---|---|---|
+  | MJPEG quality 80 | 7500 | CPU ~50%, disk low |
+  | MJPEG quality 90 | 7100 | CPU ~50%, disk low |
+  | H264 bitrate 8,000,000 | 3400 | CPU ~100%, disk low |
+  | Uncompressed TIFF | 1900 | |
+
+- **Dropped frames**: check Acquisition Frame Rate and Device Link Throughput Limit in
+  SpinView.
+
+  <img src="docs/img/spinview_troubleshoot.png" width="450">
+
+- **Frame counts don't match**: `runEyetrackAll` prints video frames × `downsample_eye`
+  next to the QTM frame count. They should agree; extra QTM frames are cropped.
+- **Cameras or lights swapped**: a warning prints if light 1 isn't left of light 2 or
+  cam1 isn't left of cam2. Fix the calibration file names, or for an already tracked
+  session run `scripts/swapCameras.m` in the session folder (overwrites `eye.mat` and
+  `beak.mat`).
+- **"reverse eye orientation" warning**: the beak is behind the eyes in the rigid-body
+  frame; check the beak clicks.
+
+## Ground-truth experiment
+
+Validates eye-angle measurements against known rotations (`scripts/groundtruth.m`).
+
+- PI M-660 rotation stage, controlled with
+  [PI software](https://www.pi-usa.us/en/products/precision-motion-controllers-and-drivers-for-positioning-systems/c-8672u2-piline-motion-controller-412418438#downloads).
+- Prepare anesthetics, saline syringe, surgical tools, eye spear, dental rubber bands and
+  applicator. Set up the motor software, rigid-body markers on the motor, and calibrate
+  QTM.
+- Anesthetize with isoflurane + ketamine/xylazine (0.1 ml each). Place in 3D-printed ear
+  bars in the surgery room, then move to the rig and position.
+- Overdose with a second dose. Once death is confirmed, cut away the skin around one eye
+  with forceps and serrated scissors. Avoid getting feathers in the eye; if needed, wipe
+  gently with a pre-moistened eye spear.
+- Record in 1° steps over ±25°: start QTM and the cameras as above, then the motor
+  sequence. Run 5–6 times in both directions. Repeat for the other eye.
+- See the paper for other methods.
