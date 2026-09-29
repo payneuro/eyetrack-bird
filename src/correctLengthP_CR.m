@@ -3,7 +3,7 @@ function [p_pupil, p_cornea, dist_pc] = correctLengthP_CR(p_pupil, p_cornea)
 
 dist_pc = sqrt(sum((p_pupil - p_cornea).^2,2));
 direction = p_pupil(:,3) > p_cornea(:,3); % direction should be 0, pupil closer to camera than CR, if calibration was ru correctly
-nanmean(direction(~isnan(p_pupil(:,1))))
+fprintf('Fraction of frames with pupil farther than CR: %.3f\n', nanmean(direction(~isnan(p_pupil(:,1)))));
 K = median(dist_pc,'omitnan'); % (mm)
 
 % Camera coordinates:

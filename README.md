@@ -11,7 +11,7 @@ fixate calibration targets.
 Contents: [Hardware](#hardware) · [Software](#software) · [Folder layout](#folder-layout) ·
 [1. Camera settings](#1-camera-settings-spinview) · [2. Calibration](#2-calibration-capture) ·
 [3. Recording setup](#3-recording-setup-qtm) · [4. Recording](#4-recording) ·
-[5. Analysis](#5-analysis-matlab) · [Coordinate frames](#coordinate-frames) ·
+[5. Analysis (GUI)](#5-analysis-matlab) · [Coordinate frames](#coordinate-frames) ·
 [Troubleshooting](#troubleshooting) · [Ground-truth experiment](#ground-truth-experiment)
 
 ---
@@ -24,8 +24,8 @@ Contents: [Hardware](#hardware) · [Software](#software) · [Folder layout](#fol
 | Lenses (2) | Edmund Optics 25 mm f/1.4, #59871 | |
 | IR LEDs (2) | LUXEON IR Domed 850 nm, LST1-01H01-IR01-01 ([Mouser 416-LST101H01IR0101](https://www.mouser.com/ProductDetail/416-LST101H01IR0101)) | Light 1 = LEFT, light 2 = RIGHT |
 | LED power | 5 V, 2 A supply; 2× 2 Ω ≥3 W resistors | See wiring below |
-| Mirror | Thorlabs ME2S-P01 (front-surface silver) | For locating the LEDs. Thickness is set in `calibrateLights.m` (`mirror_thickness = -0.1` mm) |
-| Checkerboard | Uneven size (e.g. ≥4×5 squares), **4 mm squares** | Square size is hard-coded in `calibrateCameras.m` (`square_size = 4`) |
+| Mirror | Thorlabs ME2S-P01 (front-surface silver) | For locating the LEDs. Thickness is `P.mirror_thickness` in `src/eyetrackParams.m` (−0.1 mm) |
+| Checkerboard | Uneven size (e.g. ≥4×5 squares), **4 mm squares** | Square size is `P.square_size` in `src/eyetrackParams.m` |
 | Axes triangle | 3 passive IR markers on a right triangle | Labeled `p0` (right-angle corner), `px` (long edge), `py` (short edge); mounted tilted 45° so both QTM and the eye cameras see it |
 | Head tracking | Qualisys motion capture + head marker rigid body | Rigid body must be the first one in the QTM export |
 
@@ -40,11 +40,17 @@ notch corner of each emitter with a silver marker dot before placing it on the b
 
 ## Software
 
-- MATLAB with Computer Vision, Image Processing, Signal Processing, Statistics, and Curve
-  Fitting toolboxes.
+- MATLAB (tested on R2026a) with Computer Vision, Image Processing, Signal Processing,
+  Statistics, Curve Fitting, and Mapping (`wrapTo180`) toolboxes.
 - SpinView (Spinnaker SDK) for the Blackfly cameras.
 - Qualisys Track Manager (QTM).
 - Optional: PI MikroMove for the M-660 rotation stage (ground-truth experiment only).
+- Planned, for capturing from MATLAB: Image Acquisition Toolbox with the GenICam
+  Interface support package (uses the Spinnaker GenTL producer), and ffmpeg with NVENC
+  for GPU video encoding.
+
+The GUI's Settings tab lists each of these, marks the ones missing on the current
+computer, and says how to install them (`src/checkRequirements.m`).
 
 ## Folder layout
 
@@ -172,40 +178,64 @@ folder `Z:\Hannah\eyetrack\calibration\<YYMMDD>` with the subfolders shown in
 
 ## 5. Analysis (MATLAB)
 
-All steps are in [`scripts/RUNME.m`](scripts/RUNME.m). Paths at the top of
-`RUNME.m`, `runEyetrackSingle.m`, and `runEyetrackAll.m` point at `Z:\Hannah\eyetrack`;
-edit them if your data lives elsewhere.
+### GUI
+
+```matlab
+cd C:\Users\Hannah\Dropbox\_LAB\Code\eyetrack-bird\scripts
+eyetrackGUI
+```
+
+| Tab | What it does |
+|---|---|
+| Settings | Calibration and behavior session roots, video template, checkerboard square size, mirror thickness, axes threshold, QTM downsample factor. Defaults come from `src/eyetrackParams.m`; "Save as my defaults" stores your edits in MATLAB preferences. |
+| Calibration | Pick or create a `YYMMDD` folder. A checklist marks missing images in red; click a row to view its images. **Run calibration** runs `calibrateCameras` and prints reprojection error, light positions, and camera/light order to the log. |
+| Behavior | Checks a behavior session's videos, `qtm.mat`, and matched calibration. Preview the tracker on any frame, edit settings per camera, draw a crop around each eye, then **Label beak → Track eyes → Analyze**. **Stop tracking** saves progress, and **Track eyes** resumes from there. |
+| Birds | Lists birds in the behavior session root and each behavior session's status. **Run selected birds** combines sessions per bird (`runEyetrackAll`), and **Summary plot** runs `plotEyetrack`. |
+
+<img src="docs/img/gui_session.png" width="700">
+
+Tracker settings are saved in `eye.mat` and locked once tracking starts. To change them,
+use **Delete eye.mat (retrack)**. **Load from eye.mat...** copies settings from another
+session.
+
+### Scripts
+
+The same steps without the GUI are in [`scripts/RUNME.m`](scripts/RUNME.m). Paths and
+constants are in [`src/eyetrackParams.m`](src/eyetrackParams.m), and tracker defaults are
+in [`src/defaultTrackerParams.m`](src/defaultTrackerParams.m).
 
 1. **Process the calibration.**
    ```matlab
    addpath('C:\Users\Hannah\Dropbox\_LAB\Code\eyetrack-bird\src')
    [C, A] = calibrateCameras('Z:\Hannah\eyetrack\calibration\231212');
    ```
-   Check the figures against the examples below: mean reprojection error well under 1
-   px, LED spots found in all four images, triangle markers sorted red = `p0`,
-   green = `px`, blue = `py`, and matching QTM and camera distances printed in the
-   command window. Results are cached in `calib.mat` and `axes.mat`; delete them to
-   re-run. To inspect or prune bad checkerboard pairs by hand, open MATLAB's Stereo
-   Camera Calibrator app (`stereoCameraCalibrator`) on the `cam1` and `cam2` folders.
+   Compare the figures with the examples below. Mean reprojection error should be well
+   under 1 px, with the LED spot found in all four images. The triangle markers should
+   be sorted red = `p0`, green = `px`, blue = `py`, and the QTM and camera distances
+   printed in the command window should match. Results are cached in `calib.mat` and
+   `axes.mat`; delete them or pass `force = 'all'` to re-run. To inspect or prune
+   checkerboard pairs by hand, open MATLAB's Stereo Camera Calibrator app
+   (`stereoCameraCalibrator`) on the `cam1` and `cam2` folders.
 
 2. **Track one session** (`runEyetrackSingle(session_folder, downsample_eye)`) or all
    sessions for a bird (`runEyetrackAll('Z:\...\behavior\HC13_2*', downsample_eye, 1)`).
    For each session this:
-   1. Asks you to click the beak tip in cam1 then cam2 every 45 frames. Collect 5–10
+   1. Asks you to click the beak tip in cam1, then cam2, every 45 frames. Collect 5–10
       pairs with the head in different poses. Right-click skips ahead, Enter finishes.
-      Saved to `beak.mat` (only asked for the first session of a bird).
-   2. Tracks pupil and both corneal reflections in every frame. Tracker settings are in
-      `processEyetrack.m` (`radiiPupil`, `pupil_intensity`, `iris_intensity`, `cropX`,
-      `cropY`, ...). Check the first-frame preview, and if the fit is poor, stop, edit
-      the settings, delete `eye.mat`, and restart. Progress saves every 100 frames, and
-      re-running resumes.
-   3. Triangulates pupil, cornea, and beak, converts to the common frame, and fits the
-      head/eye geometry.
+      Saved to `beak.mat`. For a whole bird it only asks in the first session.
+   2. Tracks the pupil and both corneal reflections in every frame, starting with a
+      preview frame at `example_t` s. If the fit is poor, stop, change the settings,
+      delete `eye.mat`, and restart. Progress saves every 100 frames, and re-running
+      resumes.
+   3. Triangulates pupil, cornea, and beak, converts them to the common frame, and fits
+      the head/eye geometry.
 
 3. **Summarize across birds**: `plotEyetrack(data_root, dir_roots)`.
 
 To re-run a step, delete its cached file: `calib.mat`/`axes.mat` (calibration),
 `beak.mat` (beak clicks), `eye.mat` (tracking), `eye_triangulate.mat` (3D points).
+If you add beak clicks later, delete `eye_triangulate.mat` so the beak is triangulated
+(the GUI does this for you).
 
 ### Example calibration output
 

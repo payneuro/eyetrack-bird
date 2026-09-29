@@ -1,89 +1,45 @@
-function [E, p_pupil, p_cornea, p_beak, p] = processEyetrack(filepath_eye,  camfilename, C,  resume_beak, run_beak, resume_eye)
-% Process camera calibration, run eye tracking, and store
-% head/eye/beak calibration for use in gaze analysis
+function [E, p_pupil, p_cornea, p_beak, p] = processEyetrack(filepath_eye,  camfilename, C,  resume_beak, run_beak, resume_eye, p_track, track_opts, beak_skip_frames)
+% [E, p_pupil, p_cornea, p_beak, p] = processEyetrack(filepath_eye, camfilename, C,
+%     resume_beak, run_beak, resume_eye, p_track, track_opts, beak_skip_frames)
+% Get beak clicks (getBeak), track pupil and CRs (trackEye, or load eye.mat),
+% and triangulate them into 3D camera-frame points (uncleaned, mm), cached in
+% eye_triangulate.mat. C is the camera calibration from calibrateCameras.
 %
-% Returns the estimated 3d locations of pupil, center of corneal curvature,
-% and beak (uncleaned)
-%
-% [C,A] = calibrateCameras(filepath_camera);
+% Optional:
+% p_track          - tracker settings (default defaultTrackerParams). Only used
+%                    when eye.mat doesn't exist yet
+% track_opts       - passed to trackEye (plot axes, stop/progress callbacks)
+% beak_skip_frames - frames between beak clicks (default eyetrackParams)
 %
 % Hannah Payne 2022
 
+if ~exist('p_track','var') || isempty(p_track)
+    p_track = defaultTrackerParams();
+end
+if ~exist('track_opts','var')
+    track_opts = struct;
+end
+if ~exist('beak_skip_frames','var') || isempty(beak_skip_frames)
+    P = eyetrackParams();
+    beak_skip_frames = P.beak_skip_frames;
+end
 
 %% Get beak
-[beak, flag_newdata] = getBeak(filepath_eye, camfilename, resume_beak, run_beak);
+[beak, flag_newdata] = getBeak(filepath_eye, camfilename, resume_beak, run_beak, beak_skip_frames);
 
 
 %% Track eye
 if ~exist(fullfile(filepath_eye, 'eye.mat'),'file')
-    %%
-    %{
-    p = [];
-    p.radiiPupil = 32;      % (pixels) 20
-    p.radiiCR = [2 5];          % (pixels) [4 7]
-    p.CRthresh = 12;        % (default 10) Threshold for subtracting background
-    p.CRfilter = 6;         % (default 3, minimum 3). Set larger to detect imperfect circles - but sometimes too large throws an error esp with small radiiCR
-    p.CR_box_width = 100;   % (pixels) Crop image for faster CR search
-    p.pupil_downsamp = 4;   % (pixels) factor to downsample for initial pupil search
-    p.pupil_alpha = 2;      % Sensitivity to radial symmetry. 1 - slack, 3 - strict, ... and you can go higher
-    p.minfeatures = .9;     % (fraction, [0 1]) min features required for starburst pupil detection
-    p.smoothSigma = 3;      % (pixels) smooth image (2)
-    p.ellipse_residual_thresh = 1.3; % Max mean residual to accept for final ellipse fit
-    p.max_radialSymTransform = -40;  % If pupil guesses are bad, move lower to skip more frames (speeds up tracking but might miss more data)
-    p.nCRs = 2;
-    p.edge_thresh0 = 128;       % Initial guess, increase if pupil fit is too small, decrease to run faster
-    p.max_bad_frames = 1;
-    p.min_edge_thresh = 6;
-    p.plot_on = 1;
-    p.debug_on = 0;
-    p.pupil_start = [NaN NaN];
-    p(2) = p(1); % Same settings for the second camera
-    
-    p(1).pupil_intensity = 20; % Adjust based on images if needed % 30 % 100/130
-    p(1).iris_intensity = 70; % Adjust based on images if needed %80
-    p(2).pupil_intensity = 20; % Adjust based on images if needed % 30 % 90/120
-    p(2).iris_intensity = 70;  % Adjust based on images if needed %80
-    
-    %}
-    
-    
-    %%
-    p = [];
-    p.radiiPupil = 35;      % (pixels) 20
-    p.radiiCR = [1 5];          % (pixels) [4 7]
-    p.CRthresh = 12;        % (default 10) Threshold for subtracting background
-    p.CRfilter = 6;         % (default 3, minimum 3). Set larger to detect imperfect circles - but sometimes too large throws an error esp with small radiiCR
-    p.CR_box_width = 100;   % (pixels) Crop image for faster CR search
-    p.pupil_downsamp = 4;   % (pixels) factor to downsample for initial pupil search
-    p.pupil_alpha = 2;      % Sensitivity to radial symmetry. 1 - slack, 3 - strict, ... and you can go higher
-    p.minfeatures = .9;     % (fraction, [0 1]) min features required for starburst pupil detection
-    p.smoothSigma = 3;      % (pixels) smooth image (2)
-    p.ellipse_residual_thresh = 1.3; % Max mean residual to accept for final ellipse fit
-    p.max_radialSymTransform = -40;  % If pupil guesses are bad, move lower to skip more frames (speeds up tracking but might miss more data)
-    p.nCRs = 2;
-    p.edge_thresh0 = 128;       % Initial guess, increase if pupil fit is too small, decrease to run faster
-    p.max_bad_frames = 1;
-    p.min_edge_thresh = 6;
-    p.plot_on = 1;
-    p.debug_on = 0;
-    p.pupil_start = [NaN NaN];
-    p.cropX = [500 1400]; % optional pre-crop image
-    p.cropY = [400 1000];
-    p.pupil_intensity = 37; % Adjust based on images if needed % 30 % 100/130
-    p.iris_intensity = 65; % Adjust based on images if needed %80
-    
-    p(2) = p(1); % Same settings for the second camera
-    
-    [E,p] = trackEye(filepath_eye, p, camfilename); % TRACK THE PUPIL AND CR
+    [E,p] = trackEye(filepath_eye, p_track, camfilename, track_opts); % TRACK THE PUPIL AND CR
     flag_newdata = true;
 else
     temp = load(fullfile(filepath_eye,'eye.mat'));
     E = temp.E;
     p = temp.p;
-    
+
     % To resume where we left off
     if isfield(temp,'ii') && resume_eye
-        [E,p] = trackEye(filepath_eye, p, camfilename); % TRACK THE PUPIL AND CR
+        [E,p] = trackEye(filepath_eye, p, camfilename, track_opts); % TRACK THE PUPIL AND CR
         flag_newdata = true;
     end
 end
@@ -102,30 +58,27 @@ end
 if (resume_eye && flag_newdata) || ~exist(fullfile(filepath_eye,'eye_triangulate.mat'),'file')
     p_cornea = NaN(N_eye, 3);
     p_pupil = NaN(N_eye, 3);
-    nanmask = ~isnan(E.pupil1(:,1)) & ~isnan(E.cr1(:,1,2)) & ~isnan(E.pupil2(:,1)) & ~isnan(E.cr2(:,1,2));
+    Ef = E;
+    nanmask = ~isnan(Ef.pupil1(:,1)) & ~isnan(Ef.cr1(:,1,2)) & ~isnan(Ef.pupil2(:,1)) & ~isnan(Ef.cr2(:,1,2));
     [p_cornea(nanmask,:), p_pupil(nanmask,:)] = estimatepandc(...
         C.stereo_params, C.p_light1, C.p_light2,...
-        E.pupil1(nanmask,1:2),E.pupil2(nanmask,1:2),...
-        E.cr1(nanmask,1:2,1),E.cr2(nanmask,1:2,1),...
-        E.cr1(nanmask,1:2,2),E.cr2(nanmask,1:2,2));
-    
+        Ef.pupil1(nanmask,1:2),Ef.pupil2(nanmask,1:2),...
+        Ef.cr1(nanmask,1:2,1),Ef.cr2(nanmask,1:2,1),...
+        Ef.cr1(nanmask,1:2,2),Ef.cr2(nanmask,1:2,2));
+
     p_beak = NaN(N_eye, 3);
-    if any(~isnan(beak.p1(:,1)))
-        [p_beak(~isnan(beak.p1(:,1)),:), reprojectionErrors] = triangulate(...
-            undistortPoints(beak.p1(~isnan(beak.p1(:,1)),:),...
-            C.stereo_params.CameraParameters1), ...
-            undistortPoints(beak.p2(~isnan(beak.p2(:,1)),:), ...
-            C.stereo_params.CameraParameters2),C.stereo_params);
+    mask_beak = ~isnan(beak.p1(:,1)) & ~isnan(beak.p2(:,1));
+    if any(mask_beak)
+        p_beak(mask_beak,:) = triangulate(...
+            undistortPoints(beak.p1(mask_beak,:), C.stereo_params.CameraParameters1), ...
+            undistortPoints(beak.p2(mask_beak,:), C.stereo_params.CameraParameters2), C.stereo_params);
     end
-    
 
-
-    
     save(fullfile(filepath_eye,'eye_triangulate.mat'),'p_pupil','p_cornea','p_beak')
 else
     temp = load(fullfile(filepath_eye,'eye_triangulate.mat'),'p_pupil','p_cornea','p_beak');
     p_pupil = temp.p_pupil;
     p_cornea= temp.p_cornea;
     p_beak = temp.p_beak;
-    
+
 end

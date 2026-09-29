@@ -4,7 +4,12 @@
 % 2. Find position of IR lights in the world
 % 3. Define common reference frame using simultaneous QTM measurement
 %
-% Returns: 
+% [C,A] = calibrateCameras(filepath_camera_calib, P, force)
+% P     - params struct (default eyetrackParams): square_size,
+%         mirror_thickness, axes_thresh
+% force - 'calib', 'axes', or 'all' to re-run even if calib.mat/axes.mat exist
+%
+% Returns:
 % C: camera calibrations
 % A: co-registration of qtm and dual camera system axes
 % A.R_eye: rotation matrix for axes as seen by dual cameras
@@ -18,61 +23,59 @@
 %
 % All dual camera ("eye") measurements are relative to the dual camera
 % reference frame (defined by the camera calibrations C)
-% 
+%
 % Hannah Payne, Aronov Lab 2022
 
-function [C,A] = calibrateCameras(filepath_camera_calib)
+function [C,A] = calibrateCameras(filepath_camera_calib, P, force)
+
+if ~exist('P','var') || isempty(P)
+    P = eyetrackParams();
+end
+if ~exist('force','var')
+    force = '';
+end
+C = [];
+A = [];
 
 % Ask for directory if not provided
-if ~exist('filepath_camera_calib','var')
-    filepath_camera_calib = uigetdir('Z:\Hannah\dualcamera\calibration','Select calibration folder');
+if ~exist('filepath_camera_calib','var') || isempty(filepath_camera_calib)
+    filepath_camera_calib = uigetdir(P.calib_root,'Select calibration folder');
     if ~filepath_camera_calib; return; end
 end
 
-if ~exist(fullfile(filepath_camera_calib,'calib.mat'),'file')
-    
-    
+if ~exist(fullfile(filepath_camera_calib,'calib.mat'),'file') || any(strcmp(force, {'calib','all'}))
+
     % Get standard stereo calibration
-    square_size = 4; % (mm)
     folder1 = fullfile(filepath_camera_calib, 'cam1');
     folder2 = fullfile(filepath_camera_calib, 'cam2');
-    stereo_params = myStereoCameraCalibrator(folder1,folder2,square_size);
-    
+    stereo_params = myStereoCameraCalibrator(folder1,folder2,P.square_size);
+
     % Get the location of the IR lights
-    C = calibrateLights(filepath_camera_calib, stereo_params);
-    if C.p_light1(1) > C.p_light2(1)
-        warning('Check that light 1 and 2 are not mislabelled in lights folder')
-    end
-    if C.p_cam2(1) > C.p_cam2(1)
-        warning('Check that cameras 1 and 2 are not mislabelled in calibration folder')
-    end
+    C = calibrateLights(filepath_camera_calib, stereo_params, P.mirror_thickness);
+    checkCameraOrder(C);
     save(fullfile(filepath_camera_calib,'calib.mat'),'C')
 else
     C = getfield(load(fullfile(filepath_camera_calib,'calib.mat')),'C');
-    
+
 end
 
-if ~exist(fullfile(filepath_camera_calib, 'axes.mat'),'file')
-    
+if ~exist(fullfile(filepath_camera_calib, 'axes.mat'),'file') || any(strcmp(force, {'axes','all'}))
+
     %% Detect the common axes in the dual camera and QTM reference frames
     % Provide folder containing axes.mat file from QTM and pair of images
     % named 'cam1.bmp' and 'cam2.bmp' of an three-marker triangle
     % (long edge = x axis, short edge = y axis, rotated 45 deg from x axis)
     filepath_axes = fullfile(filepath_camera_calib, 'axes');
-    
+
     % Take image where the targets are saturated
-    thresh = 250;
-    try
-        A  = calibrateAxesBW(filepath_axes, C.stereo_params, thresh);
-    catch
-        A  = calibrateAxesOld(filepath_axes, C.stereo_params, thresh);
-    end
+    A  = calibrateAxesBW(filepath_axes, C.stereo_params, P.axes_thresh);
+
     %% Save results
     save(fullfile(filepath_camera_calib,'axes.mat'),'A');
-    
+
 else
-    
+
     A = getfield(load(fullfile(filepath_camera_calib,'axes.mat')), 'A');
-    
-    
+
+
 end

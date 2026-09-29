@@ -178,7 +178,7 @@ end
 %% Find corneal reflections
 
 % Subselect the image around the pupilStart
-if isfield(p, 'CR_box_width') || ~isempty(p.CR_box_width)
+if isfield(p, 'CR_box_width') && ~isempty(p.CR_box_width)
     
     %%
     r = p.CR_box_width;

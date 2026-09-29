@@ -1,13 +1,15 @@
-% pptDefaults
-data_root = 'Z:\Hannah\eyetrack\behavior';
-code_root = fileparts(fileparts(which(mfilename)));
+% Scripted version of the pipeline. For the GUI, run eyetrackGUI.
+% Paths and constants are in src/eyetrackParams.m.
+code_root = fileparts(fileparts(mfilename('fullpath')));
 addpath(fullfile(code_root,'src'));
+P = eyetrackParams();
+data_root = P.data_root;
 ploton = 1;
 
 %% Process a single calibration of cameras
-filepath_camera = 'Z:\Hannah\eyetrack\calibration\250307';
-[C,A] = calibrateCameras(filepath_camera);
-% NOTE: To re-run calibration analysis, delete axes.mat and calib.mat files
+filepath_camera = fullfile(P.calib_root, '250307');
+[C,A] = calibrateCameras(filepath_camera, P);
+% NOTE: To re-run calibration analysis, delete axes.mat and calib.mat files (or pass force = 'all')
 
 
 %% Run a single eye tr acking file
@@ -84,7 +86,7 @@ downsample_eyes(startsWith(dir_roots,'HC12')) = 5;
 % use instead if needed
 
 for ii = 1:length(dir_roots)
-    runEyetrackAll(fullfile(data_root, dir_roots{ii}), downsample_eyes(ii), ploton)   
+    runEyetrackAll(fullfile(data_root, dir_roots{ii}), downsample_eyes(ii), ploton, P)
 end
 
 

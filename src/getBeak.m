@@ -1,8 +1,10 @@
-function [beak, flag_newdata] = getBeak(filepath_eye, camfilename, resume_beak, run_beak)
+function [beak, flag_newdata] = getBeak(filepath_eye, camfilename, resume_beak, run_beak, DI)
+% Click the beak tip in both cameras every DI frames (default 45).
+% Left click = accept, right click = skip ahead, Enter = finish.
 
-
-%% PARAMS
-DI = 45; % Number of frames to skip each time
+if ~exist('DI','var') || isempty(DI)
+    DI = 45; % Number of frames to skip each time
+end
 flag_newdata = false;
 
 if exist(fullfile(filepath_eye,'beak.mat'),'file')% Add more beak points
@@ -50,17 +52,13 @@ if ~exist('p1','var')
 end
 
 
-while 1 && ii<N_eye
+while ii<N_eye
     % Load image
     I1 = single(rgb2gray(read(vid1,ii)));
     I2 = single(rgb2gray(read(vid2,ii)));
     
     imagesc(ah1, I1); axis(ah1, 'image'); title(sprintf('Frame %i',ii))
     imagesc(ah2, I2); axis(ah2, 'image');
-    enableDefaultInteractivity(ah1);
-    
-    enableDefaultInteractivity(ah2);
-    
     axes(ah1) %#ok
     disp('Select beak tip in camera 1. Right click to skip ahead, hit Enter to exit')
     try

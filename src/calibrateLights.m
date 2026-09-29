@@ -1,4 +1,4 @@
-function C = calibrateLights(fileroot, stereo_params)
+function C = calibrateLights(fileroot, stereo_params, mirror_thickness)
 % calibrateDualCameras(fileroot)
 %
 % Obtain internal and external camera parameters and external light params
@@ -120,8 +120,9 @@ p_mirror_light2 = triangulate(u_mirror_cam1_light2_undistort(maskC1L2&maskC2L2,:
 
 % Add the thickness of the mirror to the get the actual mirror plane
 % ****
-mirror_thickness = -0.1; % (mm) Measure thickness of mirror + checkerboard sticker -- NEW thorlabs silver front-coated mirror!
-% mirror_thickness = -2.86; % (mm) Measure thickness of mirror + checkerboard sticker - old back-coated acrylic
+if ~exist('mirror_thickness','var') || isempty(mirror_thickness)
+    mirror_thickness = -0.1; % (mm) Measure thickness of mirror + checkerboard sticker -- NEW thorlabs silver front-coated mirror! Old back-coated acrylic: -2.86
+end
 p0_mirror_light1 = p0_mirror_light1_offset + mirror_thickness*n_mirror_light1';
 p0_mirror_light2 = p0_mirror_light2_offset + mirror_thickness*n_mirror_light2';
 
