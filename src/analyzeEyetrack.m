@@ -48,7 +48,7 @@ v_eye = (p_pupil-p_cornea)./sqrt(sum((p_pupil-p_cornea).^2, 2));
 temp = [];
 temp.p = p_rigidbody;
 temp.R = shiftdim(R_rigidbody,2);
-temp = processStruct(temp, @(x) smooth(x, downsample_eye, 'moving'));
+temp = processStruct(temp, @(x) movingAverage(x, downsample_eye)); % = smooth(x, n, 'moving')
 ind_downsample = 1:downsample_eye:N_eye*downsample_eye-1;
 p_rigidbody_ds = temp.p(ind_downsample,:);
 R_rigidbody_ds = temp.R(ind_downsample,:,:);
@@ -568,7 +568,7 @@ Eout.t_eye = t_eye;
 
 figure
 h_angle_eye_local = atan2d(v_eye_local(:,2), v_eye_local(:,1)); % in deg
-h_angle_eye_local = wrapTo180(90-h_angle_eye_local);
+h_angle_eye_local = wrap180(90-h_angle_eye_local);
 h_angle_eye_local_R = nanmean(h_angle_eye_local(mask_eye_R)); % in deg
 h_angle_eye_local_L = nanmean(h_angle_eye_local(mask_eye_L)); % in deg
 ylims1 = [-1 1]*.8;

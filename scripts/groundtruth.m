@@ -59,7 +59,7 @@ motor_pos(21) = [];
 elseif contains(datadir,'eyeR_250307')
 % motor_pos(end-1:end) = [];
 end
-motor_pos = motor_pos - min(motor_pos)-range(motor_pos)/2;
+motor_pos = motor_pos - min(motor_pos)-(max(motor_pos)-min(motor_pos))/2;
 
 Q = getfield(load(fullfile(datadir, [filename '.mat'])),filename);
 fps = Q.FrameRate;
@@ -101,8 +101,8 @@ end
 
 err_temp = yawd(mask) - yaw_actual(mask);
 qtm_offset = rad2deg(circ_mean(deg2rad(err_temp)));
-yawd_center = wrapTo180(yawd - qtm_offset);
-qtm_mean_pos = wrapTo180(qtm_mean_pos - qtm_offset);
+yawd_center = wrap180(yawd - qtm_offset);
+qtm_mean_pos = wrap180(qtm_mean_pos - qtm_offset);
 err = yawd_center(mask) - yaw_actual(mask);
 
 % Plot actual vs. measured
@@ -209,13 +209,13 @@ title([session ': pupil position between the two CRs (0.5 = midway), used to def
 
 subplot(2,2,3);
 plot(yaw_motor_resamp, pupil_norm_mean,'.'); hold on; plot(xlim, .5*[1 1],'k--');
-b_motor = robustfit(yaw_motor_resamp, pupil_norm_mean);
+b_motor = robustLineFit(yaw_motor_resamp, pupil_norm_mean);
 plot(xlim, xlim*b_motor(2)+b_motor(1),'--r')
 motor05 = (0.5-b_motor(1))/b_motor(2);
 title(sprintf('vs. motor angle: 0.5 at %.1f deg', motor05)); xlabel('Motor (deg)'); ylabel('Pupil x between CRs (0-1)')
 
 subplot(2,2,4); plot(yaw_eye, pupil_norm_mean,'.'); hold on; plot(xlim, .5*[1 1],'k--');
-b_eye = robustfit(yaw_eye, pupil_norm_mean);
+b_eye = robustLineFit(yaw_eye, pupil_norm_mean);
 plot(xlim, xlim*b_eye(2)+b_eye(1),'--r')
 eye05 = (0.5-b_eye(1))/b_eye(2);
 title(sprintf('vs. eye angle: 0.5 at %.1f deg', eye05)); xlabel('Eye, common frame (deg)'); ylabel('Pupil x between CRs (0-1)')
@@ -424,7 +424,7 @@ qtm_mean_pos = qtm_mean_pos - mean(err_temp);
 err = yawd_center(mask) - yaw_actual(mask);
 
 % Plot change detection
-figure; plot(wrapTo180(yawd),'k.-'); hold on
+figure; plot(wrap180(yawd),'k.-'); hold on
 plot(istart, ones(size(istart)),'+g')
 plot(istop, ones(size(istop)),'+r')
 plot(mask*100,'b')

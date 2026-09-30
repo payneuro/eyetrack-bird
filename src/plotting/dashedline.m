@@ -86,11 +86,11 @@ n = round(L/(a*2))*2+1;
 if flag_vert
     ydash = (0:.5:n);
     xdash = linspace(x(1),x(2),length(ydash));
-    ydash = ydash/n*range(y)+y(1);
+    ydash = ydash/n*(max(y)-min(y))+y(1);
 else
     xdash = (0:.5:n);
     ydash = linspace(y(1),y(2),length(xdash));
-    xdash = xdash/n*range(x)+x(1);
+    xdash = xdash/n*(max(x)-min(x))+x(1);
 end
 ydash(4:4:end) = NaN;
 ydash(2:4:end) = [];

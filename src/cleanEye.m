@@ -56,10 +56,10 @@ mask_distcr = abs(xdist1 - median(xdist1,'omitnan')) > dist_thres_cr*scale | ...
 fprintf('mask_distcr %.2f\n', mean(mask_distcr))
 
 % Check distance from all CRs to pupil
-pcdist1a = sqrt(nansum((E.cr1(:,1:2,1) - E.pupil1(:,1:2)).^2, 2));
-pcdist1b = sqrt(nansum((E.cr1(:,1:2,2) - E.pupil1(:,1:2)).^2, 2));
-pcdist2a = sqrt(nansum((E.cr2(:,1:2,1) - E.pupil2(:,1:2)).^2, 2));
-pcdist2b = sqrt(nansum((E.cr2(:,1:2,2) - E.pupil2(:,1:2)).^2, 2));
+pcdist1a = sqrt(sum((E.cr1(:,1:2,1) - E.pupil1(:,1:2)).^2, 2, 'omitnan'));
+pcdist1b = sqrt(sum((E.cr1(:,1:2,2) - E.pupil1(:,1:2)).^2, 2, 'omitnan'));
+pcdist2a = sqrt(sum((E.cr2(:,1:2,1) - E.pupil2(:,1:2)).^2, 2, 'omitnan'));
+pcdist2b = sqrt(sum((E.cr2(:,1:2,2) - E.pupil2(:,1:2)).^2, 2, 'omitnan'));
 mask_distcr_pupil = pcdist1a > dist_thresh_crpupil*scale |  pcdist1b > dist_thresh_crpupil*scale | ...
     pcdist2a > dist_thresh_crpupil*scale |  pcdist2b > dist_thresh_crpupil*scale;
 fprintf('mask_distcr_pupil %.2f\n', mean(mask_distcr_pupil))

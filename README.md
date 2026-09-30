@@ -40,8 +40,8 @@ notch corner of each emitter with a silver marker dot before placing it on the b
 
 ## Software
 
-- MATLAB (tested on R2026a) with Computer Vision, Image Processing, Signal Processing,
-  Statistics, Curve Fitting, and Mapping (`wrapTo180`) toolboxes.
+- MATLAB (tested on R2026a) with Computer Vision, Image Processing, and Signal Processing
+  toolboxes.
 - SpinView (Spinnaker SDK) for the Blackfly cameras.
 - Qualisys Track Manager (QTM).
 - Optional: PI MikroMove for the M-660 rotation stage (ground-truth experiment only).
