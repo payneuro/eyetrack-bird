@@ -22,9 +22,7 @@ function groundtruth
 % Immediately record - start qtm but wait for space bar, start both
 % cameras, hit space bar to start qtm and start motor sweep. 
 
-datadir  = 'Z:\Hannah\eyetrack\groundtruth\eyeL_250303';
-datadir_camera = 'Z:\Hannah\eyetrack\calibration\250303';
-downsample_eye = 6;
+
 
 % datadir  = 'Z:\Hannah\eyetrack\groundtruth\eyeL_250307'; % *** USE
 % datadir  = 'Z:\Hannah\eyetrack\groundtruth\eyeRpre_250307';
@@ -35,9 +33,11 @@ downsample_eye = 8;
 
 
 filename = 'qtm';
-addpath('C:\Users\Hannah\Dropbox\alab\Code\eyetrack-bird\src')
+[~, session] = fileparts(datadir); % for figure titles
+addpath(fullfile(fileparts(fileparts(mfilename('fullpath'))), 'src'))
 
 %% Motor + qtm alignment in time and space
+fprintf('[%s] Loading motor and QTM data\n', datestr(now,'HH:MM:SS'));
 motor_pos = [];
 csv_files = dir(fullfile(datadir, '*.csv'));
 [~, idx] = sort(str2double(regexp({csv_files.name}, '\d+', 'match', 'once')));
@@ -106,9 +106,12 @@ qtm_mean_pos = wrapTo180(qtm_mean_pos - qtm_offset);
 err = yawd_center(mask) - yaw_actual(mask);
 
 % Plot actual vs. measured
-figure; 
+figure;
 plot(motor_pos,'.k'); hold on
 plot(qtm_mean_pos,'+r')
+xlabel('Fixation #'); ylabel('Angle (deg)')
+legend({'Motor command', 'QTM mean per fixation'})
+title([session ': motor vs. QTM angle per fixation'], 'Interpreter', 'none')
 
 figure; 
 lims = [-25 25];
@@ -118,19 +121,22 @@ xlim(lims); ylim(lims); axis square
 set(gca,'XTick',-180:10:180, 'YTick',-180:10:180)
 xlabel('Actual (deg)'); ylabel('Measured (deg)')
 fixticks
-title('Head measurement (QTM)')
+title([session ': head measurement (QTM) vs. motor'], 'Interpreter', 'none')
 
 % Plot residuals
-figure; 
+figure;
 histogram(err, -0.2:.01:.2,'EdgeColor','none','FaceColor',.5*[1 1 1])
 rmse = sqrt(mean(err.^2));
-fprintf('RMSE of QTM head tracking technique = %.3f deg\n', rmse)
+xlabel('QTM - motor (deg)'); ylabel('Frame count')
+title(sprintf('%s: QTM head tracking error, RMSE = %.3f deg', session, rmse), 'Interpreter', 'none')
+drawnow
 
 
 
 %% Motor + eye comparison
 
 % Process eye camera calibration
+fprintf('[%s] Loading camera calibration\n', datestr(now,'HH:MM:SS'));
 [C,A] = calibrateCameras(datadir_camera);
 
 % Run eye tracking (or just load if already run)
@@ -139,12 +145,15 @@ resume_beak = 0;
 run_beak = 0;
 resume_eye = 1;
 camfilename = 'cam%i*.avi'; % Filename template for eye cameras
+fprintf('[%s] Loading/triangulating eye tracking\n', datestr(now,'HH:MM:SS'));
 [Eraw, p_pupil_cam, p_cornea_cam] = processEyetrack(datadir, camfilename,  C, resume_beak, run_beak, resume_eye);
 N_eye = size(Eraw.pupil1,1);
 t_eye = (0:N_eye-1)'/fps_eye;
 Eraw.t = t_eye;
+fprintf('[%s] Cleaning eye data\n', datestr(now,'HH:MM:SS'));
 [E, nanmask] = cleanEye(Eraw);
 plotEye(E)
+drawnow
 p_pupil_cam(nanmask,:) = NaN;
 p_cornea_cam(nanmask,:) = NaN;
 
@@ -173,6 +182,7 @@ pitch_eye = rad2deg(atan2(v_eye(:,3), sqrt(v_eye(:,1).^2 + v_eye(:,2).^2)));
 
 
 % Downsample motor data to compare eye and motor angles
+fprintf('[%s] Comparing eye and motor angles\n', datestr(now,'HH:MM:SS'));
 yaw_motor_resamp = interp1(t_head, yaw_actual, t_eye);
 mask_resamp = interp1(t_head, double(mask), t_eye)>.5;
 
@@ -192,18 +202,23 @@ pupil_norm_mean = mean([pupil_norm1 pupil_norm2],2);
 pupil_norm_mean(mask_dist_pc) = NaN;
 figure;
 subplot(2,2,[1 2]);
-plot([pupil_norm1 pupil_norm2 pupil_norm_mean],'.'); title('pupil - cr x ratio')
+plot([pupil_norm1 pupil_norm2 pupil_norm_mean],'.');
+legend({'cam1', 'cam2', 'mean'})
+xlabel('Eye frame #'); ylabel('Pupil x between CRs (0-1)')
+title([session ': pupil position between the two CRs (0.5 = midway), used to define 0 deg'], 'Interpreter', 'none')
 
-subplot(2,2,3); 
-plot(yaw_motor_resamp, pupil_norm_mean,'.'); hold on; plot(xlim, .5*[1 1],'k--'); title('motor pos vs. pupil - cr x ratio')
+subplot(2,2,3);
+plot(yaw_motor_resamp, pupil_norm_mean,'.'); hold on; plot(xlim, .5*[1 1],'k--');
 b_motor = robustfit(yaw_motor_resamp, pupil_norm_mean);
 plot(xlim, xlim*b_motor(2)+b_motor(1),'--r')
 motor05 = (0.5-b_motor(1))/b_motor(2);
+title(sprintf('vs. motor angle: 0.5 at %.1f deg', motor05)); xlabel('Motor (deg)'); ylabel('Pupil x between CRs (0-1)')
 
-subplot(2,2,4); plot(yaw_eye, pupil_norm_mean,'.'); hold on; plot(xlim, .5*[1 1],'k--'); title('eye  pos vs. pupil - cr x ratio')
+subplot(2,2,4); plot(yaw_eye, pupil_norm_mean,'.'); hold on; plot(xlim, .5*[1 1],'k--');
 b_eye = robustfit(yaw_eye, pupil_norm_mean);
 plot(xlim, xlim*b_eye(2)+b_eye(1),'--r')
 eye05 = (0.5-b_eye(1))/b_eye(2);
+title(sprintf('vs. eye angle: 0.5 at %.1f deg', eye05)); xlabel('Eye, common frame (deg)'); ylabel('Pupil x between CRs (0-1)')
 
 yaw_motor_center = yaw_motor_resamp - motor05;
 yaw_eye_center = yaw_eye-eye05;
@@ -213,6 +228,7 @@ figure; plot(t_eye(mask_resamp), yaw_motor_center(mask_resamp),'k.');
 hold on; plot(t_eye(mask_resamp), yaw_eye_center(mask_resamp),'r.');
 xlabel('Time (s)'); ylabel('Horizontal angle (deg)')
 legend('Motor','Eye tracking')
+title([session ': horizontal angle during fixations, centered'], 'Interpreter', 'none')
 
 
 err_eye = yaw_eye_center(mask_resamp) - yaw_motor_center(mask_resamp);
@@ -233,24 +249,29 @@ for ii = 1:length(istart_eye)
     end
 end
 err_eye_mean = eye_mean_center  - motor_mean_center;
+drawnow
 
 
 
 
+
+% Single eye: color all points the same (the combined block below overrides this)
+mask_eye = zeros(size(yaw_eye_center));
+mask_eye_mean = zeros(size(err_eye_mean));
 
 %%  UNCOMMENT TO LOAD PREVIOUS RESULTS AND PLOT COMBINED
-a = load('Z:\Hannah\eyetrack\groundtruth\eyeL_250307\results.mat');
-b = load('Z:\Hannah\eyetrack\groundtruth\eyeR_250307\results.mat');
-yaw_motor_center = [a.yaw_motor_center; b.yaw_motor_center];
-yaw_eye_center = [a.yaw_eye_center; b.yaw_eye_center];
-motor_mean_center = [a.motor_mean_center; b.motor_mean_center];
-eye_mean_center = [a.eye_mean_center; b.eye_mean_center];
-err_eye = [a.err_eye; b.err_eye];
-err_eye_mean = [a.err_eye_mean; b.err_eye_mean];
-mask_resamp = [a.mask_resamp; b.mask_resamp];
-mask_eye = [zeros(size(a.yaw_eye_center)); ones(size(b.yaw_eye_center))];
-mask_eye_mean = [zeros(size(a.err_eye_mean)); ones(size(b.err_eye_mean))];
-% END UNCOMMENT
+% a = load('Z:\Hannah\eyetrack\groundtruth\eyeL_250307\results.mat');
+% b = load('Z:\Hannah\eyetrack\groundtruth\eyeR_250307\results.mat');
+% yaw_motor_center = [a.yaw_motor_center; b.yaw_motor_center];
+% yaw_eye_center = [a.yaw_eye_center; b.yaw_eye_center];
+% motor_mean_center = [a.motor_mean_center; b.motor_mean_center];
+% eye_mean_center = [a.eye_mean_center; b.eye_mean_center];
+% err_eye = [a.err_eye; b.err_eye];
+% err_eye_mean = [a.err_eye_mean; b.err_eye_mean];
+% mask_resamp = [a.mask_resamp; b.mask_resamp];
+% mask_eye = [zeros(size(a.yaw_eye_center)); ones(size(b.yaw_eye_center))];
+% mask_eye_mean = [zeros(size(a.err_eye_mean)); ones(size(b.err_eye_mean))];
+% % END UNCOMMENT
 
 
 mask_range = abs(yaw_motor_center)<30;
@@ -258,7 +279,7 @@ mask_range_mean = abs(motor_mean_center)<30;
 err_eye_plot = err_eye(mask_range(mask_resamp)); % Restrict to +- 25 deg
 err_eye_mean_plot = err_eye_mean(mask_range_mean);
 
-figure; 
+figure;
 subplot(1,2,1)
 lims = [-30 35];
 plot(lims, lims, '--k'); hold on
@@ -269,12 +290,12 @@ colormap cool
 axis equal
 xlim(lims); 
 ylim([-30 35]);
-xlabel('Motor')
-ylabel('Eye tracking')
-title('By data point')
+xlabel('Motor (deg)')
+ylabel('Eye tracking (deg)')
+title([session ': by data point'], 'Interpreter', 'none')
 fprintf('cyan = left eye, magenta = right eye\n+ angle = CCW rotation of bird relative to stationary camera\n')
 
-subplot(1,2,2); cla
+ax_mean = subplot(1,2,2); cla
 plot(lims, lims, '--k'); hold on
 plot(lims, [0 0],'-k')
 plot([0 0], lims,'-k')
@@ -284,9 +305,8 @@ axis equal
 xlim(lims); 
 ylim(lims);
 % set(gca,'XTick',-20:10:20,'YTick',-20:10:20)
-xlabel('Motor')
-ylabel('Eye tracking')
-title('Mean within fixations')
+xlabel('Motor (deg)')
+ylabel('Eye tracking (deg)')
 fixticks
 
 
@@ -298,15 +318,15 @@ histogram(err_eye_plot, bins,'EdgeColor','none','FaceColor',.5*[1 1 1]); hold on
 % histogram(err_eye(mask_range(mask_resamp&mask_eye)), bins,'EdgeColor','none','FaceColor','m'); hold on
 xlabel('Error (deg)'); ylabel('Frame count')
 xlim([-10 10])
-title('Eye error - frames')
 rmse = std(err_eye_plot,'omitnan');
+title(sprintf('%s: eye error - frames, within +-30 deg (SD %.2f deg)', session, rmse), 'Interpreter', 'none')
 fprintf('RMSE of eye tracking, frames = %.3f deg\n', rmse)
 subplot(1,2,2)
 histogram(err_eye_mean_plot, bins,'EdgeColor','none','FaceColor',.5*[1 1 1])
 xlabel('Error (deg)'); ylabel('Fixation count')
 xlim([-10 10])
-title('Eye error - fixations')
 rmse = std(err_eye_mean_plot,'omitnan');
+title(sprintf('Eye error - fixations (SD %.2f deg)', rmse))
 fprintf('RMSE of eye tracking, fixations = %.3f deg\n', rmse)
 fixticks
 
@@ -314,8 +334,11 @@ fixticks
 % Get slope of correlation
 nanmask = ~isnan(eye_mean_center)& mask_range_mean;
 slope = motor_mean_center(nanmask)\(eye_mean_center(nanmask))
+title(ax_mean, sprintf('Mean within fixations (slope %.3f)', slope))
+drawnow
 
 %% Save results
+fprintf('[%s] Saving %s\n', datestr(now,'HH:MM:SS'), fullfile(datadir,'results.mat'));
 save(fullfile(datadir,'results.mat'), 'yaw_motor_center','yaw_eye_center','motor_mean_center','eye_mean_center','err_eye','err_eye_mean', 'mask_resamp')
 
 
@@ -344,8 +367,12 @@ yaw_eye_ellipse = rad2deg(real(squeeze(atan2(v_eye_ellipse1(:,2), v_eye_ellipse1
 % yaw_eye = rad2deg(real(squeeze(atan2(v_eye(:,2), v_eye(:,1)))));
 
 figure; plot([yaw_eye_center yaw_eye_ellipse] ,'.')
+xlabel('Eye frame #'); ylabel('Horizontal angle (deg)')
+legend({'Dual-camera (centered)', 'Pupil ellipse, cam1'})
+title([session ': dual-camera vs. single-camera ellipse angle (not worked out)'], 'Interpreter', 'none')
 
 %% Load head ground truth data
+fprintf('[%s] Head ground truth\n', datestr(now,'HH:MM:SS'));
 datadir  = 'Z:\Hannah\eyetrack\groundtruth\head';
 filename = 'qtm360_1_500ms';
 filename_motor = 'scan_1.csv';
@@ -401,6 +428,9 @@ figure; plot(wrapTo180(yawd),'k.-'); hold on
 plot(istart, ones(size(istart)),'+g')
 plot(istop, ones(size(istop)),'+r')
 plot(mask*100,'b')
+xlabel('QTM frame #'); ylabel('Yaw (deg)')
+legend({'QTM yaw', 'Stationary start', 'Stationary stop', 'Measurement mask (x100)'})
+title(['Head ground truth (' filename '): detected stationary periods'], 'Interpreter', 'none')
 
 % Plot actual vs. measured
 figure; 
@@ -412,13 +442,16 @@ xlim(lims); ylim(lims); axis square
 set(gca,'XTick',0:60:360, 'YTick',0:60:360)
 xlabel('Actual (deg)'); ylabel('Measured (deg)')
 fixticks
-title('Head measurement (QTM)')
+title(['Head ground truth (' filename '): QTM vs. motor, 360 deg'], 'Interpreter', 'none')
 
 % Plot residuals
-figure; 
+figure;
 histogram(err - mean(err), -0.2:.01:.2,'EdgeColor','none','FaceColor',.5*[1 1 1])
 rmse = sqrt(mean(err.^2));
+xlabel('QTM - motor, mean removed (deg)'); ylabel('Frame count')
+title(sprintf('Head ground truth (%s): QTM error, RMSE = %.3f deg', filename, rmse), 'Interpreter', 'none')
 fprintf('RMSE of QTM head tracking technique = %.3f deg\n', rmse)
+drawnow
 
 
 
@@ -463,6 +496,9 @@ function [istart, istop] = find_stationary_periods(yawd, fps, win_size, var_thre
         figure; plot(mov_var,'.-');
         hold on; plot(diff(yawd_unwrap))
         plot(xlim, var_thresh*[1 1],'--r')
+        xlabel('QTM frame #'); ylabel('deg^2 (variance) or deg (change)')
+        legend({'Moving variance of yaw', 'Frame-to-frame yaw change', 'Stationary threshold'})
+        title('Stationary-period detection (automatic threshold)')
     end
 
     % Identify stationary periods (variance below threshold)
