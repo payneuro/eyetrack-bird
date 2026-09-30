@@ -10,7 +10,7 @@ P.camfilename = 'cam%i*.avi';                    % Eye video template, %i = came
 
 % Calibration
 P.square_size = 4;          % (mm) checkerboard square size
-P.mirror_thickness = -0.1;  % (mm) front-coated Thorlabs mirror; old back-coated acrylic was -2.86
+P.mirror_thickness = -0.1;  % (mm) checkerboard sticker on the front-coated Thorlabs mirror
 P.axes_thresh = 250;        % Intensity threshold for saturated axes markers (after smoothing)
 
 % Recording

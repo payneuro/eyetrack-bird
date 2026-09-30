@@ -1,5 +1,8 @@
 function C = calibrateLights(fileroot, stereo_params, mirror_thickness)
-% calibrateDualCameras(fileroot)
+% C = calibrateLights(fileroot, stereo_params, mirror_thickness)
+% Locate the two IR LEDs from their reflections in a mirror. mirror_thickness
+% (mm, default -0.1) moves the plane fit to the mirror's checkerboard sticker
+% onto the reflecting surface.
 %
 % Obtain internal and external camera parameters and external light params
 %
@@ -69,12 +72,13 @@ figure; %maximize;
 subplot(2,4,1);
 imshow(I_cam1_light1); hold on
 plot(u_cam1_light1(1), u_cam1_light1(2),'+r')
-title('light 1 in camera 1')
+title('light 1 in camera 1 (+ = detected LED)')
 
 subplot(2,4,2);
 J = insertText(imread(file_cam1_light1_check),u_mirror_cam1_light1(maskC1L1,:),find(maskC1L1));
 imshow(J)
 hold on; plot(u_mirror_cam1_light1(:,1), u_mirror_cam1_light1(:,2),'go')
+title('mirror checkerboard, light 1, camera 1')
 
 subplot(2,4,3); 
 imshow(I_cam2_light1); hold on
@@ -85,6 +89,7 @@ subplot(2,4,4);
 J = insertText(imread(file_cam2_light1_check),u_mirror_cam2_light1(maskC2L1,:),find(maskC2L1));
 imshow(J)
 hold on; plot(u_mirror_cam2_light1(:,1), u_mirror_cam2_light1(:,2),'go')
+title('mirror checkerboard, light 1, camera 2')
 
 subplot(2,4,5); 
 imshow(I_cam1_light2); hold on
@@ -95,6 +100,7 @@ subplot(2,4,6)
 J = insertText(imread(file_cam1_light2_check),u_mirror_cam1_light2(maskC1L2,:),find(maskC1L2));
 imshow(J)
 hold on; plot(u_mirror_cam1_light2(:,1), u_mirror_cam1_light2(:,2),'go')
+title('mirror checkerboard, light 2, camera 1')
 
 subplot(2,4,7)
 imshow(I_cam2_light2); hold on
@@ -105,6 +111,8 @@ subplot(2,4,8);
 J = insertText(imread(file_cam2_light2_check),u_mirror_cam2_light2(maskC2L2,:),find(maskC2L2));
 imshow(J)
 hold on; plot(u_mirror_cam2_light2(:,1), u_mirror_cam2_light2(:,2),'go')
+title('mirror checkerboard, light 2, camera 2')
+drawnow
 
 %% Undistort and project checkerboard points to world coordinates and find mirror plane 
 
@@ -119,10 +127,13 @@ p_mirror_light2 = triangulate(u_mirror_cam1_light2_undistort(maskC1L2&maskC2L2,:
 [n_mirror_light2,V_mirror_light2,p0_mirror_light2_offset] = affine_fit(p_mirror_light2);
 
 % Add the thickness of the mirror to the get the actual mirror plane
-% ****
 if ~exist('mirror_thickness','var') || isempty(mirror_thickness)
-    mirror_thickness = -0.1; % (mm) Measure thickness of mirror + checkerboard sticker -- NEW thorlabs silver front-coated mirror! Old back-coated acrylic: -2.86
+    mirror_thickness = -0.1; % (mm) checkerboard sticker on the front-coated Thorlabs mirror
 end
+% affine_fit's normal has an arbitrary sign; point it toward the cameras (-z) so a
+% negative thickness moves the plane from the sticker back to the mirror surface
+if n_mirror_light1(3) > 0; n_mirror_light1 = -n_mirror_light1; end
+if n_mirror_light2(3) > 0; n_mirror_light2 = -n_mirror_light2; end
 p0_mirror_light1 = p0_mirror_light1_offset + mirror_thickness*n_mirror_light1';
 p0_mirror_light2 = p0_mirror_light2_offset + mirror_thickness*n_mirror_light2';
 
@@ -158,9 +169,11 @@ pcshow(p_virtual_light2,'m','MarkerSize',400)                            % Plot 
 view([0 -1 0])
 xlim(xlim+[-20 20])
 zlim(zlim+[-20 20])
-xlabel('X')
-ylabel('Y')
-zlabel('Z')
+xlabel('X (mm)')
+ylabel('Y (mm)')
+zlabel('Z (mm)')
+title({'Camera frame: cameras (cyan), light 1 (red), light 2 (magenta)', 'large = real LED, medium = mirror image, small = mirror checkerboard'})
+drawnow
 
 % campos([-16.2859 -166.1160 -603.8011])
 % legend(hp , {'Cameras','light1','light2'})

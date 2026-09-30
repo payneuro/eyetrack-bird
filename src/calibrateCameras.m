@@ -7,7 +7,9 @@
 % [C,A] = calibrateCameras(filepath_camera_calib, P, force)
 % P     - params struct (default eyetrackParams): square_size,
 %         mirror_thickness, axes_thresh
-% force - 'calib', 'axes', or 'all' to re-run even if calib.mat/axes.mat exist
+% force - 'all' to recompute both, or 'axes' for axes.mat only, even if
+%         calib.mat/axes.mat exist. ('calib' = 'all', since the axes are
+%         triangulated with the stereo calibration.)
 %
 % Returns:
 % C: camera calibrations
@@ -34,6 +36,7 @@ end
 if ~exist('force','var')
     force = '';
 end
+if strcmp(force, 'calib'); force = 'all'; end
 C = [];
 A = [];
 
@@ -43,7 +46,7 @@ if ~exist('filepath_camera_calib','var') || isempty(filepath_camera_calib)
     if ~filepath_camera_calib; return; end
 end
 
-if ~exist(fullfile(filepath_camera_calib,'calib.mat'),'file') || any(strcmp(force, {'calib','all'}))
+if ~exist(fullfile(filepath_camera_calib,'calib.mat'),'file') || strcmp(force, 'all')
 
     % Get standard stereo calibration
     folder1 = fullfile(filepath_camera_calib, 'cam1');
