@@ -83,5 +83,5 @@ if p.plot_on
         set(plot_handles.pupil_inliers, 'XData', points.px1, 'YData', points.py1);
         %
     end
-    drawnow
+    drawnow limitrate
 end

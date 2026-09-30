@@ -82,7 +82,7 @@ imagesc(I1b); colormap(gray); axis image; hold on
 for ii = 1:3    
    plot(bounds1{ii}(:,2), bounds1{ii}(:,1),'y')
 end
-title('Camera 1')
+title('Axes markers, camera 1 (red = p0, green = px, blue = py)')
 scatter(p_eye1(:,1),p_eye1(:,2), 50,[1 0 0; 0 1 0; 0 0 1],'filled')
 
 subplot(1,2,2);
@@ -90,8 +90,9 @@ imagesc(I2b); colormap(gray); axis image; hold on
 for ii = 1:3    
    plot(bounds2{ii}(:,2), bounds2{ii}(:,1),'y')
 end
-title('Camera 2')
+title('Axes markers, camera 2')
 scatter(p_eye2(:,1),p_eye2(:,2), 50,[1 0 0; 0 1 0; 0 0 1],'filled')
+drawnow
 
 
 %% Undistort and triangulate points in dual camera reference frame
@@ -129,27 +130,28 @@ p_head_local = (p_head - p0_head)*R_head;
 p_head_local2 = p_head_local*R_45; % Rotate around x axis by 45 deg to account to keep vertical truly vertical (axes is titled 45 so both camera and QTM can see it)
 
 figure; subplot(2,2,1)
-scatter3(p_head_local(:,1), p_head_local(:,2), p_head_local(:,3),50,[1 0 0; 0 1 0; 0 0 1],'filled'); axis vis3d;axis equal
-xlabel('x'); ylabel('y'); zlabel('z');
-title('Head')
+scatter3(p_head_local(:,1), p_head_local(:,2), p_head_local(:,3),50,[1 0 0; 0 1 0; 0 0 1],'filled'); axis equal; axis vis3d
+xlabel('x (mm)'); ylabel('y (mm)'); zlabel('z (mm)');
+title('QTM axes (red = p0, green = px, blue = py)')
 
-subplot(2,2,2); title('Head, rotate 45')
-scatter3(p_head_local2(:,1), p_head_local2(:,2), p_head_local2(:,3),50,[1 0 0; 0 1 0; 0 0 1],'filled'); axis vis3d;axis equal
-xlabel('x'); ylabel('y'); zlabel('z');
-title('Head, rotate 45')
+subplot(2,2,2);
+scatter3(p_head_local2(:,1), p_head_local2(:,2), p_head_local2(:,3),50,[1 0 0; 0 1 0; 0 0 1],'filled'); axis equal; axis vis3d
+xlabel('x (mm)'); ylabel('y (mm)'); zlabel('z (mm)');
+title('QTM axes, rotated 45 deg')
 
 p_eye_local = (p_eye - p0_eye)*R_eye;
 p_eye_local2 = p_eye_local*R_45; % Rotate around x axis by 45 deg to keep vertical truly vertical (axes is titled 45 so both camera and QTM can see it)
 
 subplot(2,2,3);
-scatter3(p_eye_local(:,1), p_eye_local(:,2), p_eye_local(:,3),50,[1 0 0; 0 1 0; 0 0 1],'filled'); axis vis3d;axis equal
-xlabel('x'); ylabel('y'); zlabel('z');
-title('Eye')
+scatter3(p_eye_local(:,1), p_eye_local(:,2), p_eye_local(:,3),50,[1 0 0; 0 1 0; 0 0 1],'filled'); axis equal; axis vis3d
+xlabel('x (mm)'); ylabel('y (mm)'); zlabel('z (mm)');
+title('Eye-camera axes')
 
-subplot(2,2,4); title('Eye, rotate 45')
-scatter3(p_eye_local2(:,1), p_eye_local2(:,2), p_eye_local2(:,3),50,[1 0 0; 0 1 0; 0 0 1],'filled'); axis vis3d;axis equal
-xlabel('x'); ylabel('y'); zlabel('z');
-title('Eye, rotate 45')
+subplot(2,2,4);
+scatter3(p_eye_local2(:,1), p_eye_local2(:,2), p_eye_local2(:,3),50,[1 0 0; 0 1 0; 0 0 1],'filled'); axis equal; axis vis3d
+xlabel('x (mm)'); ylabel('y (mm)'); zlabel('z (mm)');
+title('Eye-camera axes, rotated 45 deg')
+drawnow
 
 
 disp('Reprojection errors: ')

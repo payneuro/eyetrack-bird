@@ -7,7 +7,7 @@ function [E, p] = trackEye(filepath_eye, p, camfilename, opts)
 % opts (all optional):
 %   ah           - [ax1 ax2] axes to draw into (default: new figure)
 %   stop_fcn     - @() logical, checked each frame; true saves and stops
-%   progress_fcn - @(ii, N) called every 100 frames
+%   progress_fcn - @(ii, N) called every 100 frames and at the end
 %   show_summary - plot pupil/CR traces at the end (default true)
 
 if ~exist('opts','var'); opts = struct; end
@@ -131,14 +131,23 @@ opts.progress_fcn(N_eye, N_eye);
 
 %% Plot results
 if opts.show_summary
+    [~, session] = fileparts(filepath_eye);
     figure;
-    subplot(2,1,1); plot(E.pupil1(:,1:2)); title('Camera 1 pupil (x and y)')
-    subplot(2,1,2); plot(E.pupil2(:,1:2)); title('Camera 2 pupil (x and y)')
+    subplot(2,1,1); plot(E.pupil1(:,1:2)); legend({'x','y'})
+    ylabel('Pixels (cropped image)')
+    title([session ': camera 1 pupil center'], 'Interpreter', 'none')
+    subplot(2,1,2); plot(E.pupil2(:,1:2)); legend({'x','y'})
+    xlabel('Eye frame #'); ylabel('Pixels (cropped image)')
+    title('Camera 2 pupil center')
     linkaxes
 
     figure;
-    subplot(2,1,1); plot(E.cr1(:,1:2)); title('Camera 1 CR (x and y)')
-    subplot(2,1,2); plot(E.cr2(:,1:2)); title('Camera 2 CR (x and y)')
+    subplot(2,1,1); plot(E.cr1(:,1:2)); legend({'x','y'})
+    ylabel('Pixels (cropped image)')
+    title([session ': camera 1 corneal reflection a'], 'Interpreter', 'none')
+    subplot(2,1,2); plot(E.cr2(:,1:2)); legend({'x','y'})
+    xlabel('Eye frame #'); ylabel('Pixels (cropped image)')
+    title('Camera 2 corneal reflection a')
     linkaxes
     drawnow
 end

@@ -16,19 +16,20 @@ disp(stats)
 
 figure; 
 wun = ones(height(stats),1);
-plot(wun, stats.theta_eye,'ok'); hold on
+h = plot(wun, stats.theta_eye,'ok'); hold on
 plot(wun*2, 90-stats.phi_eye,'ok');
 
 mean_theta = mean(stats.theta_eye);
 std_theta = std(stats.theta_eye);
-plot(1, mean_theta,'+r','LineWidth',2); hold on
+h(2) = plot(1, mean_theta,'+r','LineWidth',2); hold on
 mean_phi = mean(90-stats.phi_eye);
 std_phi = std(90-stats.phi_eye);
 plot(2, mean_phi,'+r','LineWidth',2);
 
 result = sprintf('Theta = %.1f+-%.1f, phi = %.1f+-%.1f, n = %i, mean +- stdev\n', mean_theta, std_theta, mean_phi, std_phi, height(stats));
 disp(result)
-title(result)%,'FontSize',8
+title(strtrim(result))
+legend(h, {'Bird', 'Mean'})
 labelArray = {'Horizontal angle','Vertical angle';'from center','above beak'};
 tickLabels = strtrim(sprintf('%s\\newline%s\n', labelArray{:}));
 set(gca,'XTick',[1 2], 'XTickLabel',tickLabels)
@@ -36,6 +37,7 @@ ylabel('Angle (deg)')
 ylim([0 70])
 xlim([0.5 2.5])
 fixticks
+drawnow
 
 
 %%

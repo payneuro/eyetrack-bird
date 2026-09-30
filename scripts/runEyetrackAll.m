@@ -93,10 +93,19 @@ if ploton
     pitch_eye = atan2(v_eye(:,3), sqrt(v_eye(:,1).^2 + v_eye(:,2).^2));
     yawd_eye = rad2deg(yaw_eye);
     pitchd_eye = rad2deg(pitch_eye);
-    figure; plot(v_eye,'.'); title('Eye vector, common frame'); legend({'x','y','z'})
-    figure; plot([yawd_eye pitchd_eye],'.-'); title('Eye yaw and pitch (deg)'); legend({'yaw','pitch'})
-    figure; histogram(yawd_eye-90, -50:1:50); xlabel('Yaw - 90 (deg)')
-    figure; histogram(yawd_eye, -180:1:180); xlabel('Yaw (deg)')
+    [~, bird] = fileparts(filepath_eye_root);
+    bird = strtok(bird, '_');
+    figure; plot(v_eye,'.'); legend({'x','y','z'})
+    xlabel('Eye frame # (all sessions)'); ylabel('Unit vector component')
+    title([bird ': eye vector (pupil - cornea), common frame'], 'Interpreter', 'none')
+    figure; plot([yawd_eye pitchd_eye],'.-'); legend({'yaw','pitch'})
+    xlabel('Eye frame # (all sessions)'); ylabel('Angle (deg)')
+    title([bird ': eye yaw and pitch, common frame'], 'Interpreter', 'none')
+    figure
+    subplot(1,2,1); histogram(yawd_eye, -180:1:180); xlabel('Yaw (deg)'); ylabel('Frame count')
+    title([bird ': eye yaw, common frame'], 'Interpreter', 'none')
+    subplot(1,2,2); histogram(yawd_eye-90, -50:1:50); xlabel('Yaw - 90 (deg)'); ylabel('Frame count')
+    title('Zoom: within 50 deg of 90')
     drawnow
 end
 

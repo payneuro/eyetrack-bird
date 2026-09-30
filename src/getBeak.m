@@ -1,6 +1,10 @@
 function [beak, flag_newdata] = getBeak(filepath_eye, camfilename, resume_beak, run_beak, DI)
+% [beak, flag_newdata] = getBeak(filepath_eye, camfilename, resume_beak, run_beak, DI)
 % Click the beak tip in both cameras every DI frames (default 45).
 % Left click = accept, right click = skip ahead, Enter = finish.
+% Returns beak.p1/p2 (N x 2 pixels, NaN = not clicked). Loads beak.mat if it
+% exists; resume_beak adds clicks to it. With run_beak false and no beak.mat,
+% returns [].
 
 if ~exist('DI','var') || isempty(DI)
     DI = 45; % Number of frames to skip each time
@@ -27,10 +31,7 @@ end
 flag_newdata = true;
 
 %% Load the high res video
-cam1 = dir(fullfile(filepath_eye, sprintf(camfilename, 1) ));
-cam2 = dir(fullfile(filepath_eye, sprintf(camfilename, 2) ));
-vid1 = VideoReader(fullfile(cam1.folder, cam1.name));
-vid2 = VideoReader(fullfile(cam2.folder, cam2.name));
+[vid1, vid2] = openEyeVideos(filepath_eye, camfilename);
 N_eye = min(vid1.NumFrames, vid2.NumFrames);
 
 
@@ -54,11 +55,11 @@ end
 
 while ii<N_eye
     % Load image
-    I1 = single(rgb2gray(read(vid1,ii)));
-    I2 = single(rgb2gray(read(vid2,ii)));
+    [I1, I2] = readEyeFrames(vid1, vid2, ii); % full frames, no crop
     
-    imagesc(ah1, I1); axis(ah1, 'image'); title(sprintf('Frame %i',ii))
-    imagesc(ah2, I2); axis(ah2, 'image');
+    imagesc(ah1, I1); axis(ah1, 'image'); title(ah1, sprintf('Camera 1, frame %i: click beak tip (right click = skip, Enter = done)',ii))
+    imagesc(ah2, I2); axis(ah2, 'image'); title(ah2, 'Camera 2: then click beak tip here')
+    drawnow
     axes(ah1) %#ok
     disp('Select beak tip in camera 1. Right click to skip ahead, hit Enter to exit')
     try
