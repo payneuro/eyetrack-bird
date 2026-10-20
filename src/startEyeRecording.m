@@ -34,9 +34,12 @@ for k = 1:2
     if ~isempty(exposure_us)
         setCameraExposure(cams(k), exposure_us);
     end
-    rec.trigger{k} = setHardwareTrigger(cams(k).src, P); % one frame per TTL
-    triggerconfig(vid, 'immediate');
-    vid.FramesPerTrigger = Inf;
+    % Hardware trigger in the toolbox too: with 'immediate' the adaptor turns
+    % the camera's TriggerMode off at start and the camera runs free (~60 fps)
+    triggerconfig(vid, 'hardware', 'DeviceSpecific', 'DeviceSpecific');
+    setHardwareTrigger(cams(k).src, P); % one frame per TTL
+    vid.FramesPerTrigger = 1;
+    vid.TriggerRepeat = Inf;
     state = struct('written', 0, 'last', [], 'proc', [], 'pipe', [], 'error', '');
     if strcmp(format, 'raw')
         vid.LoggingMode = 'disk&memory'; % disk = the video; memory only feeds the preview
@@ -54,12 +57,26 @@ end
 for k = 1:2
     start(cams(k).vid);
 end
+for k = 1:2 % read back after start, which is when the adaptor applies its own settings
+    [rec.trigger{k}, is_on] = triggerSettings(cams(k).src);
+    if ~is_on
+        stopEyeRecording(rec);
+        cellfun(@delete, rec.files(cellfun(@isfile, rec.files))); % empty videos
+        error('cam%i trigger mode is off after starting (%s), so it would run free. Not recording.', k, rec.trigger{k});
+    end
+end
 end
 
-function txt = setHardwareTrigger(src, P)
+function [txt, is_on] = triggerSettings(src)
+names = intersect({'TriggerSelector', 'TriggerMode', 'TriggerSource', 'TriggerActivation', 'TriggerOverlap', 'ExposureMode'}, ...
+    fieldnames(propinfo(src)), 'stable');
+txt = strjoin(cellfun(@(n) sprintf('%s=%s', n, src.(n)), names, 'UniformOutput', false), ', ');
+is_on = strcmp(src.TriggerMode, 'On');
+end
+
+function setHardwareTrigger(src, P)
 % Set every trigger setting explicitly (don't rely on what SpinView left):
-% each rising edge on P.trigger_line starts one frame. Returns the settings
-% read back from the camera.
+% each rising edge on P.trigger_line starts one frame
 info = propinfo(src);
 src.TriggerMode = 'Off'; % the camera only accepts trigger changes while off
 if isfield(info, 'TriggerSelector'); src.TriggerSelector = 'FrameStart'; end
@@ -67,9 +84,6 @@ src.TriggerSource = P.trigger_line;
 src.TriggerActivation = 'RisingEdge';
 if isfield(info, 'ExposureMode'); src.ExposureMode = 'Timed'; end
 src.TriggerMode = 'On';
-names = intersect({'TriggerSelector', 'TriggerMode', 'TriggerSource', 'TriggerActivation', 'TriggerOverlap', 'ExposureMode'}, ...
-    fieldnames(info), 'stable');
-txt = strjoin(cellfun(@(n) sprintf('%s=%s', n, src.(n)), names, 'UniformOutput', false), ', ');
 end
 
 function [proc, pipe] = startEncoder(P, res, file)

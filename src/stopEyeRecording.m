@@ -32,6 +32,9 @@ for k = 1:2
     end
     err{k} = state.error;
     vid.FramesAcquiredFcn = '';
+    triggerconfig(vid, 'immediate'); % as before recording; the camera's TriggerMode stays On
+    vid.FramesPerTrigger = 1;
+    vid.TriggerRepeat = 0;
     vid.LoggingMode = 'memory';
     flushdata(vid);
     vid.UserData = [];
