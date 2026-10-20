@@ -5,7 +5,8 @@ function ok = checkCameraOrder(C)
 
 ok = true;
 if C.p_light1(1) > C.p_light2(1)
-    warning('Check that light 1 and 2 are not mislabelled in lights folder')
+    warning(['Light 1 should be the LED on the left in the cameras'' view, but it is on the right. ' ...
+        'The tracker pairs corneal reflections left to right with light 1 and light 2, so check the lights images are not swapped.'])
     ok = false;
 end
 if C.p_cam1(1) > C.p_cam2(1)

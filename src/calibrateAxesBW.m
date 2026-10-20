@@ -30,13 +30,15 @@ temp2 = dir(fullfile(filepath_axes, 'cam2.bmp'));
 axes_filename_cam1 = fullfile(filepath_axes, temp1.name);
 axes_filename_cam2 = fullfile(filepath_axes, temp2.name);
 
-% Saturated markers in each camera (detectAxesMarkers), sorted p0, px, py
+% Saturated markers in each camera (detectAxesMarkers), then matched between
+% cameras and named p0, px, py from the triangle's shape (matchAxesMarkers)
 [p_eye1, bounds1, n1, I1b] = detectAxesMarkers(imread(axes_filename_cam1), thresh);
 [p_eye2, bounds2, n2, I2b] = detectAxesMarkers(imread(axes_filename_cam2), thresh);
 if isempty(p_eye1) || isempty(p_eye2)
-    error('Found %i (cam1) and %i (cam2) axes markers above threshold %g; need 3 in each. Retake axes\cam1.bmp/cam2.bmp with the markers saturated.', ...
-        n1, n2, thresh);
+    error(['Found %i (cam1) and %i (cam2) round saturated markers; need exactly 3 in each. ' ...
+        'Retake axes\\cam1.bmp/cam2.bmp with the markers saturated (and nothing else round and saturated).'], n1, n2);
 end
+[p_eye1, p_eye2] = matchAxesMarkers(p_eye1, p_eye2, stereo_params);
 
 % Plot results for dual cameras
 figure('Pos',[  36         558        1204         420]);
@@ -72,6 +74,14 @@ p1_eye = p_eye(2,:);
 p2_eye = p_eye(3,:);
 
 fprintf('EYE AXES:  x dist: %.2f mm, y dist %.2f mm\n',sqrt(sum((p1_eye-p0_eye).^2)), sqrt(sum((p2_eye-p0_eye).^2)))
+
+% The cameras and QTM must see the same triangle (past calibrations agree to < 0.3 mm)
+legs_eye = [norm(p1_eye - p0_eye), norm(p2_eye - p0_eye)];
+legs_qtm = [norm(p1_head - p0_head), norm(p2_head - p0_head)];
+if any(abs(legs_eye - legs_qtm) > 2)
+    error(['The axes markers found by the cameras (legs %.1f and %.1f mm) don''t match QTM''s triangle ' ...
+        '(%.1f and %.1f mm). Check the axes images and the QTM labels p0, px, py.'], legs_eye, legs_qtm);
+end
 
 vx_eye = (p1_eye-p0_eye)/norm(p1_eye-p0_eye);
 vy_eye_temp = (p2_eye-p0_eye)/norm(p2_eye-p0_eye);

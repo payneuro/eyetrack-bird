@@ -270,8 +270,12 @@ end
 
     function runCalibration()
         d = requireFolder(ui.cal.folder.Value, 'calibration');
-        calibrateCameras(d, P, 'all'); % always recompute; it takes seconds
+        C = calibrateCameras(d, P, 'all'); % always recompute; it takes seconds
         drawnow
+        if checkLightOrder(d, C)
+            calibrateCameras(d, P, 'all'); % lights files were swapped
+            drawnow
+        end
         refreshCalibration();
         summarizeCalibration();
     end
@@ -342,6 +346,48 @@ end
         setShownFiles(files);
         ui.cal.preview_label.Text = msg;
         logMsg(msg);
+        if any(strcmp(item.kind, {'led', 'mirror'}))
+            checkLightOrder(d, []);
+        end
+    end
+
+    function swapped = checkLightOrder(d, C)
+        % Light 1 must be the LED on the left in the cameras' view (the tracker
+        % pairs corneal reflections left to right with lights 1 and 2). Once all
+        % light images exist, locate the LEDs (quietly, using C if given) and
+        % offer to swap the light 1 and 2 files if they're reversed.
+        swapped = false;
+        if isempty(C)
+            if ~all(cellfun(@isfile, lightFiles(d))); return; end
+            if min(numel(listImageFiles(fullfile(d, 'cam1'))), numel(listImageFiles(fullfile(d, 'cam2')))) < 4
+                logMsg('Light order will be checked at Run calibration (needs 4+ checkerboard pairs first).');
+                return
+            end
+            ui.cal.preview_label.Text = 'Checking which LED is light 1...'; drawnow
+            try
+                sp = myStereoCameraCalibrator(fullfile(d, 'cam1'), fullfile(d, 'cam2'), P.square_size, false);
+                C = calibrateLights(d, sp, P.mirror_thickness, false);
+            catch err
+                logMsg(['Could not check the light order: ' err.message]);
+                return
+            end
+        end
+        if C.p_light1(1) <= C.p_light2(1)
+            logMsg('Light order OK: light 1 is on the left.');
+            return
+        end
+        sel = uiconfirm(fig, ['Light 1 is on the RIGHT in the cameras'' view, but should be on the left ' ...
+            '(the tracker pairs corneal reflections left to right with light 1 and light 2). ' ...
+            'Were the light 1 and light 2 images taken the wrong way round?'], 'Light order', ...
+            'Options', {'Swap light 1 and 2 files', 'Keep as is'}, 'DefaultOption', 2, 'CancelOption', 2, 'Icon', 'warning');
+        if strcmp(sel, 'Swap light 1 and 2 files')
+            swapLightFiles(d);
+            logMsg('Swapped the light 1 and light 2 image files.');
+            refreshCalibration();
+            swapped = true;
+        else
+            logMsg('Kept the light files as they are (light 1 is on the right).');
+        end
     end
 
     function startLive()
@@ -987,6 +1033,29 @@ items = struct( ...
              'Also record the triangle in QTM and export axes\qtm.mat with markers labeled p0, px, py.'});
 end
 
+function files = lightFiles(d)
+% All 8 light images: cam1/cam2 x light 1/2 x LED spot/mirror checkerboard
+files = {};
+for cam = 1:2
+    for light = 1:2
+        base = fullfile(d, 'lights', sprintf('cam%i_light%i', cam, light));
+        files = [files, {[base '.bmp'], [base '_checkerboard.bmp']}]; %#ok<AGROW>
+    end
+end
+end
+
+function swapLightFiles(d)
+% Rename light 1 images to light 2 and vice versa (both cameras, both kinds)
+for cam = 1:2
+    for suffix = {'', '_checkerboard'}
+        f1 = fullfile(d, 'lights', sprintf('cam%i_light1%s.bmp', cam, suffix{1}));
+        f2 = fullfile(d, 'lights', sprintf('cam%i_light2%s.bmp', cam, suffix{1}));
+        tmp = [f1 '.swap'];
+        movefile(f1, tmp); movefile(f2, f1); movefile(tmp, f2);
+    end
+end
+end
+
 function files = captureFiles(d, item)
 % Full paths where a capture item is saved, {cam1 file, cam2 file}.
 % <next> = the lowest pair number not used in cam1 or cam2 (fills gaps left by deletes)
@@ -1071,12 +1140,12 @@ switch kind
     case 'axes'
         [p, bounds, n_found] = detectAxesMarkers(I, P.axes_thresh);
         ok = ~isempty(p);
+        for k = 1:numel(bounds); plot(ax, bounds{k}(:,2), bounds{k}(:,1), 'y'); end
         if ok
-            for k = 1:3; plot(ax, bounds{k}(:,2), bounds{k}(:,1), 'y'); end
-            scatter(ax, p(:,1), p(:,2), 50, [1 0 0; 0 1 0; 0 0 1], 'filled');
-            txt = '3 markers (red p0, green px, blue py)';
+            plot(ax, p(:,1), p(:,2), 'r+', 'MarkerSize', 15, 'LineWidth', 1.5);
+            txt = '3 markers found';  % named p0/px/py at calibration, from both cameras
         else
-            txt = sprintf('%i markers above %g; need 3', n_found, P.axes_thresh);
+            txt = sprintf('%i round saturated markers (need exactly 3)', n_found);
         end
 end
 hold(ax, 'off');
