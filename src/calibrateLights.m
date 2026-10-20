@@ -38,10 +38,10 @@ file_cam2_light2_check = fullfile(fileroot, 'lights','cam2_light2_checkerboard.b
 % square_size_mirror = 1; % (mm) Doesn't matter! Just needs to be in a plane
 
 %%
-[u_mirror_cam1_light1, maskC1L1] = getChecks(file_cam1_light1_check);
-[u_mirror_cam2_light1, maskC2L1] = getChecks(file_cam2_light1_check);
-[u_mirror_cam1_light2, maskC1L2] = getChecks(file_cam1_light2_check);
-[u_mirror_cam2_light2, maskC2L2] = getChecks(file_cam2_light2_check);
+[u_mirror_cam1_light1, maskC1L1] = mirrorCheckerboard(file_cam1_light1_check);
+[u_mirror_cam2_light1, maskC2L1] = mirrorCheckerboard(file_cam2_light1_check);
+[u_mirror_cam1_light2, maskC1L2] = mirrorCheckerboard(file_cam1_light2_check);
+[u_mirror_cam2_light2, maskC2L2] = mirrorCheckerboard(file_cam2_light2_check);
 
 
 %% Detect lights. New method: intensity turned down so a single spot of light is visible, detect the center of it
@@ -50,21 +50,10 @@ I_cam2_light1 = imread(file_cam2_light1);
 I_cam1_light2 = imread(file_cam1_light2);
 I_cam2_light2 = imread(file_cam2_light2);
 
-temp = regionprops(I_cam1_light1==255);
-[~, idx] = max([temp.Area]);
-u_cam1_light1 = temp(idx).Centroid;
-
-temp = regionprops(I_cam2_light1==255);
-[~, idx] = max([temp.Area]);
-u_cam2_light1 = temp(idx).Centroid;
-
-temp = regionprops(I_cam1_light2==255);
-[~, idx] = max([temp.Area]);
-u_cam1_light2 = temp(idx).Centroid;
-
-temp = regionprops(I_cam2_light2==255);
-[~, idx] = max([temp.Area]);
-u_cam2_light2 = temp(idx).Centroid;
+u_cam1_light1 = ledSpot(I_cam1_light1, file_cam1_light1);
+u_cam2_light1 = ledSpot(I_cam2_light1, file_cam2_light1);
+u_cam1_light2 = ledSpot(I_cam1_light2, file_cam1_light2);
+u_cam2_light2 = ledSpot(I_cam2_light2, file_cam2_light2);
 
 
 % Plot results for each image
@@ -188,65 +177,20 @@ C.p_cam2 = p_cam2;
 
 end
 
-function [u, mask_mirror] = getChecks(filepathname)
-% Detect checkerboard in image coordinates
-
-% Load and adjust image
-I = imread(filepathname);
-% I = imlocalbrighten(I);
-I = localcontrast(I);
-
-% Detect points
-MinCornerMetric = 0.15;% default 0.15, decrease e.g. 0.12 to get more corner detections
-[u, board_size] = detectCheckerboardPoints(I, 'PartialDetections',true,'MinCornerMetric',MinCornerMetric);
-
-% Reshape x and y
-ux = reshape(u(:,1), board_size-1);
-uy = reshape(u(:,2), board_size-1);
-
-% Standardize the orientation
-if nanmean(u(1:(board_size(1)-1):end,2)) > nanmean(u(board_size-1:(board_size(1)-1):end,2)) 
-    ux = flipud(ux);
-    uy = flipud(uy);
+function [u, mask] = mirrorCheckerboard(file)
+% Mirror checkerboard corners (detectMirrorCheckerboard), or a clear error
+[u, mask] = detectMirrorCheckerboard(imread(file));
+if ~any(mask)
+    [~, name, ext] = fileparts(file);
+    error('No checkerboard found in %s. Retake it (longer exposure, or angle the mirror so the board is visible).', [name ext]);
 end
-if nanmean(u(1:(board_size(1)-1),1)) > nanmean(u(end-board_size(1)+2:end,1)) 
-    ux = fliplr(ux);
-    uy = fliplr(uy);
 end
 
-u = [ux(:) uy(:)];
-
-% Output mask for NaNs as well1
-mask_mirror = ~isnan(u(:,1));
-
-% 
-% %%
-% I_cam1_light1 = imread(file_cam1_light1_check);
-% I_cam2_light1 = imread(file_cam2_light1_check);
-% I_cam1_light2 = imread(file_cam1_light2_check);
-% I_cam2_light2 = imread(file_cam2_light2_check);
-% 
-% I_cam1_light1 = imlocalbrighten(I_cam1_light1);
-% I_cam2_light1 = imlocalbrighten(I_cam2_light1);
-% I_cam1_light2 = imlocalbrighten(I_cam1_light2);
-% I_cam2_light2 = imlocalbrighten(I_cam2_light2);
-% 
-% I_cam1_light1 = localcontrast(I_cam1_light1);
-% I_cam2_light1 = localcontrast(I_cam2_light1);
-% I_cam1_light2 = localcontrast(I_cam1_light2);
-% I_cam2_light2 = localcontrast(I_cam2_light2);
-% 
-% u_mirror_cam1_light1 = detectCheckerboardPoints(I_cam1_light1, 'PartialDetections',true);
-% u_mirror_cam2_light1 = detectCheckerboardPoints(I_cam2_light1, 'PartialDetections',true);
-% u_mirror_cam1_light2 = detectCheckerboardPoints(I_cam1_light2, 'PartialDetections',true);
-% u_mirror_cam2_light2 = detectCheckerboardPoints(I_cam2_light2, 'PartialDetections',true);
-% 
-% 
-% 
-% maskC1L1 = ~isnan(u_mirror_cam1_light1(:,1));
-% maskC2L1 = ~isnan(u_mirror_cam2_light1(:,1));
-% maskC1L2 = ~isnan(u_mirror_cam1_light2(:,1));
-% maskC2L2 = ~isnan(u_mirror_cam2_light2(:,1));
-
-
+function xy = ledSpot(I, file)
+% LED reflection position (detectLedSpot), or a clear error
+xy = detectLedSpot(I);
+if isempty(xy)
+    [~, name, ext] = fileparts(file);
+    error('No saturated LED spot in %s. Retake it with the LED reflection visible and saturated.', [name ext]);
+end
 end

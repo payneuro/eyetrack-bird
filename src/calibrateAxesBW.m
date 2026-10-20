@@ -30,50 +30,13 @@ temp2 = dir(fullfile(filepath_axes, 'cam2.bmp'));
 axes_filename_cam1 = fullfile(filepath_axes, temp1.name);
 axes_filename_cam2 = fullfile(filepath_axes, temp2.name);
 
-I1a = double(imread(axes_filename_cam1));
-I2a = double(imread(axes_filename_cam2));
-if size(I1a,3)==3
-   I1a = rgb2gray(I1a);
-   I2a = rgb2gray(I2a);
+% Saturated markers in each camera (detectAxesMarkers), sorted p0, px, py
+[p_eye1, bounds1, n1, I1b] = detectAxesMarkers(imread(axes_filename_cam1), thresh);
+[p_eye2, bounds2, n2, I2b] = detectAxesMarkers(imread(axes_filename_cam2), thresh);
+if isempty(p_eye1) || isempty(p_eye2)
+    error('Found %i (cam1) and %i (cam2) axes markers above threshold %g; need 3 in each. Retake axes\cam1.bmp/cam2.bmp with the markers saturated.', ...
+        n1, n2, thresh);
 end
-
-smoothSigma = 5;
-gaussian_smooth_image = @(I, sigma) imfilter(I, fspecial('gaussian', [ceil(2.5*sigma) ceil(2.5*sigma)], sigma), 'symmetric');
-I1b = gaussian_smooth_image(I1a, smoothSigma);
-I2b = gaussian_smooth_image(I2a, smoothSigma);
-
-% Threshold images
-I1c = I1b>thresh;
-I2c = I2b>thresh;
-
-% Gen outlines, areas, centroids
-rprops1 = regionprops(I1c,'Area','Centroid','MajorAxisLength');
-bounds1 = bwboundaries(I1c);
-rprops2 = regionprops(I2c,'Area','Centroid','MajorAxisLength');
-bounds2 = bwboundaries(I2c);
-
-% Get the three biggest regions
-[~, order] = sort([rprops1.Area]);
-rprops1  = rprops1(order(end-2:end))';
-bounds1  = bounds1(order(end-2:end))';
-p_eye1 = cell2mat({rprops1.Centroid}');
-r_eye1  = [rprops1.MajorAxisLength]/2;
-
-[~, order] = sort([rprops2.Area]);
-rprops2  = rprops2(order(end-2:end))';
-bounds2  = bounds2(order(end-2:end))';
-p_eye2 = cell2mat({rprops2.Centroid}');
-r_eye2  = [rprops2.MajorAxisLength]/2;
-
-% Sort into p0, px, and py
-[~, ind_y] = min(p_eye1(:,2));
-[~, ind_x] = max(p_eye1(:,1));
-ind_0 = find(~ismember(1:3, [ind_y ind_x]));
-p_eye1 = p_eye1([ind_0; ind_x; ind_y],:);
-[~, ind_y] = min(p_eye2(:,2));
-[~, ind_x] = max(p_eye2(:,1));
-ind_0 = find(~ismember(1:3, [ind_y ind_x]));
-p_eye2 = p_eye2([ind_0; ind_x; ind_y],:);
 
 % Plot results for dual cameras
 figure('Pos',[  36         558        1204         420]);

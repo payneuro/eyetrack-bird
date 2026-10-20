@@ -316,29 +316,14 @@ end
         I = {getsnapshot(cams(1).vid), getsnapshot(cams(2).vid)};
         exposure_ms = cams(1).src.ExposureTime/1000;
         item = selectedCaptureItem();
-        is_checkerboard = startsWith(item.label, 'Checkerboard');
-        found = true(1, 2);
         ax = [ui.cal.ax1 ui.cal.ax2];
+        ok = true(1, 2); result = cell(1, 2);
         for cam = 1:2
-            cla(ax(cam));
-            imagesc(ax(cam), I{cam}); colormap(ax(cam), gray); axis(ax(cam), 'image');
-            ax(cam).XTick = []; ax(cam).YTick = [];
-            txt = sprintf('cam%i: %.1f%% saturated', cam, 100*mean(I{cam}(:) == 255));
-            if is_checkerboard % same detection calibration uses
-                [pts, board] = detectCheckerboardPoints(I{cam});
-                found(cam) = ~isempty(pts);
-                if found(cam)
-                    hold(ax(cam), 'on'); plot(ax(cam), pts(:,1), pts(:,2), 'g+'); hold(ax(cam), 'off');
-                    txt = sprintf('%s, checkerboard %ix%i found', txt, board(1), board(2));
-                else
-                    txt = [txt ', NO checkerboard found'];
-                end
-            end
-            title(ax(cam), txt);
+            [ok(cam), result{cam}] = showAndCheck(ax(cam), I{cam}, item.kind, sprintf('cam%i', cam), P);
         end
-        msg = sprintf('%s, %.3f ms', item.label, exposure_ms);
-        if is_checkerboard && ~all(found)
-            msg = [msg ' (checkerboard not found in both: calibration will skip this pair)'];
+        msg = sprintf('%s, %.3f ms (%s)', item.label, exposure_ms, strjoin(result, '; '));
+        if ~all(ok)
+            msg = [msg ' (CHECK FAILED: retake this one)'];
         end
         files = captureFiles(d, item);
         short = strrep(files, [d filesep], '');
@@ -492,21 +477,20 @@ end
         k = find(strcmp({pairs.label}, label), 1);
         if isempty(k); return; end
         files = pairs(k).files;
-        [~, n1, e1] = fileparts(files{1}); [~, n2, e2] = fileparts(files{2});
-        showImage(ui.cal.ax1, files{1}, [n1 e1]);
-        showImage(ui.cal.ax2, files{2}, [n2 e2]);
-        setShownFiles(files);
-        msg = label;
-        if startsWith(label, 'Checkerboard')
-            n = nnz(startsWith({pairs.label}, 'Checkerboard'));
-            msg = sprintf('%s (%i pairs saved)', label, n);
-        elseif startsWith(label, 'Light') && isfile(files{1})
-            I = imread(files{1});
-            msg = sprintf('%s: %i saturated pixels in the LED spot image (the largest saturated blob is taken as the LED)', ...
-                label, nnz(I == 255));
-        elseif strcmp(label, 'Axes')
-            msg = sprintf('Axes: markers must have intensity > %g for detection', P.axes_thresh);
+        ax = [ui.cal.ax1 ui.cal.ax2];
+        ok = true(1, 2); result = cell(1, 2);
+        for j = 1:2
+            [~, name, ext] = fileparts(files{j});
+            if isfile(files{j})
+                [ok(j), result{j}] = showAndCheck(ax(j), imread(files{j}), pairs(k).kinds{j}, [name ext], P);
+            else
+                cla(ax(j)); result{j} = [name ext ': missing']; ok(j) = false;
+                title(ax(j), result{j}, 'Interpreter', 'none');
+            end
         end
+        setShownFiles(files);
+        msg = sprintf('%s: %s', label, strjoin(result, '; '));
+        if ~all(ok); msg = [msg ' (CHECK FAILED: retake)']; end
         ui.cal.preview_label.Text = msg;
     end
 
@@ -985,7 +969,8 @@ function items = captureItems(P)
 % Calibration images the Capture panel can take. exposure_ms is in ms (NaN =
 % the camera's current setting); file is where each camera's image is saved,
 % with %i = camera number and <next> = the next unused checkerboard pair number;
-% hint is shown under the dropdown when the item is selected.
+% hint is shown under the dropdown when the item is selected; kind picks the
+% check run right after capture (showAndCheck).
 items = struct( ...
     'label', {'Checkerboard pair', 'Light 1: LED spot', 'Light 1: mirror checkerboard', ...
               'Light 2: LED spot', 'Light 2: mirror checkerboard', 'Axes triangle'}, ...
@@ -993,6 +978,7 @@ items = struct( ...
                     P.exposure_led_spot_ms, P.exposure_mirror_checkerboard_ms, NaN}, ...
     'file', {'cam%i\<next>.bmp', 'lights\cam%i_light1.bmp', 'lights\cam%i_light1_checkerboard.bmp', ...
              'lights\cam%i_light2.bmp', 'lights\cam%i_light2_checkerboard.bmp', 'axes\cam%i.bmp'}, ...
+    'kind', {'checkerboard', 'led', 'mirror', 'led', 'mirror', 'axes'}, ...
     'hint', {'Hold the checkerboard still in a new position and angle for each pair (4-10 pairs).', ...
              'Orient the mirror so light 1 is visible in both cameras. Snap the LED spot and the mirror checkerboard without moving anything.', ...
              'Orient the mirror so light 1 is visible in both cameras. Snap the LED spot and the mirror checkerboard without moving anything.', ...
@@ -1021,25 +1007,28 @@ function pairs = savedImagePairs(d)
 % Saved calibration images in folder d, as pairs to show side by side:
 % checkerboard pairs (cam1 and cam2 with the same file name), each
 % light/camera (LED spot and mirror checkerboard), and the axes images.
-pairs = struct('label', {}, 'files', {});
+% kinds says which check (showAndCheck) applies to each file.
+pairs = struct('label', {}, 'files', {}, 'kinds', {});
 names = union(fileNames(fullfile(d, 'cam1')), fileNames(fullfile(d, 'cam2')));
 [~, order] = sort(str2double(regexprep(names, '\.\w+$', ''))); % 1, 2, ..., 10
 for name = names(order)
     pairs(end+1) = struct('label', ['Checkerboard pair ' regexprep(name{1}, '\.\w+$', '')], ...
-        'files', {{fullfile(d, 'cam1', name{1}), fullfile(d, 'cam2', name{1})}}); %#ok<AGROW>
+        'files', {{fullfile(d, 'cam1', name{1}), fullfile(d, 'cam2', name{1})}}, ...
+        'kinds', {{'checkerboard', 'checkerboard'}}); %#ok<AGROW>
 end
 for light = 1:2
     for cam = 1:2
         base = fullfile(d, 'lights', sprintf('cam%i_light%i', cam, light));
         files = {[base '.bmp'], [base '_checkerboard.bmp']};
         if any(cellfun(@isfile, files))
-            pairs(end+1) = struct('label', sprintf('Light %i, cam%i', light, cam), 'files', {files}); %#ok<AGROW>
+            pairs(end+1) = struct('label', sprintf('Light %i, cam%i', light, cam), 'files', {files}, ...
+                'kinds', {{'led', 'mirror'}}); %#ok<AGROW>
         end
     end
 end
 files = {fullfile(d, 'axes', 'cam1.bmp'), fullfile(d, 'axes', 'cam2.bmp')};
 if any(cellfun(@isfile, files))
-    pairs(end+1) = struct('label', 'Axes', 'files', {files});
+    pairs(end+1) = struct('label', 'Axes', 'files', {files}, 'kinds', {{'axes', 'axes'}});
 end
 end
 
@@ -1048,15 +1037,52 @@ function names = fileNames(folder)
 names = strcat(n, e);
 end
 
-function showImage(ax, f, label)
+function [ok, txt] = showAndCheck(ax, I, kind, name, P)
+% Show one calibration image and run the detection calibration will use on
+% it, so a bad image can be retaken right away. kind: 'checkerboard', 'led'
+% (LED spot), 'mirror' (mirror checkerboard), or 'axes'. Returns false if
+% the detection failed; txt is the result, '<name>: <what was found>'.
 cla(ax);
-if isempty(f) || ~isfile(f)
-    title(ax, [label ': missing'], 'Interpreter', 'none');
-    return
-end
-imagesc(ax, imread(f)); colormap(ax, gray); axis(ax, 'image');
+imagesc(ax, I, [0 255]); colormap(ax, gray); axis(ax, 'image');
 ax.XTick = []; ax.YTick = [];
-[~, n, e] = fileparts(f);
-if strcmp(label, [n e]); txt = label; else; txt = [label '  (' n e ')']; end
+hold(ax, 'on');
+switch kind
+    case 'checkerboard'
+        [pts, board] = detectCheckerboardPoints(I);
+        ok = ~isempty(pts);
+        if ok
+            plot(ax, pts(:,1), pts(:,2), 'g+');
+            txt = sprintf('checkerboard %ix%i found', board(1), board(2));
+        end
+    case 'mirror'
+        [u, mask] = detectMirrorCheckerboard(I);
+        ok = any(mask);
+        if ok
+            plot(ax, u(mask,1), u(mask,2), 'go');
+            txt = sprintf('mirror checkerboard: %i corners', nnz(mask));
+        end
+    case 'led'
+        [xy, area] = detectLedSpot(I);
+        ok = ~isempty(xy);
+        if ok
+            plot(ax, xy(1), xy(2), 'r+', 'MarkerSize', 20, 'LineWidth', 1.5);
+            txt = sprintf('LED spot at (%.0f, %.0f), %i px', xy(1), xy(2), area);
+        end
+    case 'axes'
+        [p, bounds, n_found] = detectAxesMarkers(I, P.axes_thresh);
+        ok = ~isempty(p);
+        if ok
+            for k = 1:3; plot(ax, bounds{k}(:,2), bounds{k}(:,1), 'y'); end
+            scatter(ax, p(:,1), p(:,2), 50, [1 0 0; 0 1 0; 0 0 1], 'filled');
+            txt = '3 markers (red p0, green px, blue py)';
+        else
+            txt = sprintf('%i markers above %g; need 3', n_found, P.axes_thresh);
+        end
+end
+hold(ax, 'off');
+if ~ok && ~strcmp(kind, 'axes')
+    txt = 'NOT FOUND';
+end
+txt = sprintf('%s: %s', name, txt);
 title(ax, txt, 'Interpreter', 'none');
 end
