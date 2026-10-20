@@ -6,7 +6,7 @@ function stopEyeCamerasLive(cams, saved)
 for k = 1:numel(cams)
     if ~isvalid(cams(k).vid); continue; end
     if isrunning(cams(k).vid); stop(cams(k).vid); end
-    flushdata(cams(k).vid);
+    triggerconfig(cams(k).vid, 'immediate');
     cams(k).src.ExposureTime = saved(k).ExposureTime;
     cams(k).src.TriggerMode = saved(k).TriggerMode;
 end

@@ -124,8 +124,8 @@ expects. Close SpinView first, since only one program can hold the cameras.
 1. Set the QTM exposure to 50–80 µs so the QTM strobes don't reflect in the eye.
 2. Calibrate QTM (wand + L-frame).
 3. In the GUI, create today's folder (step 1 of the tab) and click **Connect cameras**.
-   Turn on **Live** to stream both cameras while you position each target; it pauses
-   for each snap and picks up exposure changes right away.
+   Both cameras show live in Preview while you position each target; exposure changes
+   apply right away.
 4. **Checkerboard.** Choose *Checkerboard pair*. Take 4–10 pairs with the checkerboard
    in different positions and orientations, holding it still for each **Snap & save**.
    They're saved as `cam1\1.bmp`, `cam2\1.bmp`, and so on. Each snap says whether the
@@ -148,9 +148,9 @@ expects. Close SpinView first, since only one program can hold the cameras.
    their row in the checklist), then **Delete these images** and snap again. When the checklist has no red rows, click **Run calibration** and check the log (see
    [5. Analysis](#5-analysis-matlab), step 1).
 
-Snaps switch the cameras' hardware trigger off briefly and read the two cameras about
-0.5 s apart, so the target must be still. The exposures are set in
-`src/eyetrackParams.m`. You can still capture in SpinView instead, using the file names
+While connected, the cameras run with their hardware trigger off (restored when you
+disconnect), and a snap saves each camera's newest frame, so keep the target still. The
+exposure presets are set in `src/eyetrackParams.m`. You can still capture in SpinView instead, using the file names
 above.
 
 ## 3. Recording setup (QTM)
@@ -199,7 +199,7 @@ eyetrackGUI
 | Tab | What it does |
 |---|---|
 | Settings | Calibration and behavior session roots, checkerboard square size, axes threshold, QTM downsample factor, beak click spacing. Defaults come from `src/eyetrackParams.m`; "Save as my defaults" stores your edits in MATLAB preferences. Also lists the toolboxes and software this computer is missing. |
-| Calibration | Pick or create a `YYMMDD` folder, connect the cameras, and snap each calibration image (saved under the right name; checkerboard snaps report whether the board was found), with a **Live** view for positioning. A checklist marks missing images in red, including a QTM export without p0/px/py labels. **Saved images** shows any saved pair, and **Delete these images** removes it to retake. **Run calibration** runs `calibrateCameras` and prints reprojection error, light positions, and camera/light order to the log. |
+| Calibration | Pick or create a `YYMMDD` folder, connect the cameras, and snap each calibration image (saved under the right name; checkerboard snaps report whether the board was found), with a live view for positioning. A checklist marks missing images in red, including a QTM export without p0/px/py labels. **Saved images** shows any saved pair, and **Delete these images** removes it to retake. **Run calibration** runs `calibrateCameras` and prints reprojection error, light positions, and camera/light order to the log. |
 | Behavior | Checks a behavior session's videos, `qtm.mat`, and matched calibration. Preview the tracker on any frame, edit settings per camera, draw a crop around each eye, then **Label beak → Track eyes → Analyze**. **Stop tracking** saves progress, and **Track eyes** resumes from there. |
 | Birds | Lists birds in the behavior session root and each behavior session's status. **Run selected birds** combines sessions per bird (`runEyetrackAll`), and **Summary plot** runs `plotEyetrack`. |
 

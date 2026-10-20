@@ -22,7 +22,7 @@ ui = struct;
 vids = struct('folder', '', 'v1', [], 'v2', [], 'N', 0);
 cams = []; % connected eye cameras (openEyeCameras), [] if not connected
 shown_files = {}; % saved images shown in the calibration Preview, for Delete
-live = struct('timer', [], 'saved', [], 'img', []); % live camera view (timer redraws img)
+live = struct('timer', [], 'saved', [], 'img', [], 't0', [], 'resume_at', 0); % live view; paused until toc(t0) >= resume_at
 
 %% Layout
 fig = uifigure('Name', 'eyetrack-bird', 'Position', [80 60 1280 840], ...
@@ -174,12 +174,10 @@ end
         % 2. Capture (from MATLAB; the QTM part of the axes step is done in QTM)
         p = uipanel(left, 'Title', '2. Capture images (close SpinView first; targets must be still)', 'FontWeight', 'bold');
         pg = uigridlayout(p, [4 1], 'RowHeight', {26, 26, 28, '1x'}, 'Padding', [6 4 6 4]);
-        r = uigridlayout(pg, [1 3], 'ColumnWidth', {140, 70, '1x'}, 'Padding', [0 0 0 0]);
+        r = uigridlayout(pg, [1 2], 'ColumnWidth', {140, '1x'}, 'Padding', [0 0 0 0]);
         ui.cap.connect = uibutton(r, 'Text', 'Connect cameras', 'ButtonPushedFcn', @(~,~) runStep('Connect cameras', @toggleCameras, true), ...
-            'Tooltip', 'Connect to both Blackfly cameras (matched to cam1/cam2 by serial number in eyetrackParams.m)');
-        ui.cap.live = uibutton(r, 'state', 'Text', 'Live', 'Enable', 'off', ...
-            'ValueChangedFcn', @(src,~) runStep('Live view', @() setLive(src.Value), false), ...
-            'Tooltip', 'Stream both cameras into Preview (~10 frames/s) at the exposure below, to position targets');
+            'Tooltip', ['Connect to both Blackfly cameras (matched to cam1/cam2 by serial number in eyetrackParams.m) ' ...
+            'and show them live in Preview']);
         ui.cap.status = uilabel(r, 'Text', 'Not connected');
         r = uigridlayout(pg, [1 4], 'ColumnWidth', {40, '1x', 95, 70}, 'Padding', [0 0 0 0]);
         uilabel(r, 'Text', 'What:');
@@ -189,11 +187,8 @@ end
             'ValueDisplayFormat', '%.3f', ...
             'ValueChangedFcn', @(~,~) applyLiveExposure(), ...
             'Tooltip', 'Applied to both cameras for this capture only; their own exposure is restored afterward');
-        r = uigridlayout(pg, [1 2], 'Padding', [0 0 0 0]);
-        uibutton(r, 'Text', 'Preview (don''t save)', 'ButtonPushedFcn', @(~,~) runStep('Preview capture', @() captureStill(false), true), ...
-            'Tooltip', 'Grab one frame from each camera and show it in Preview, without saving');
-        uibutton(r, 'Text', 'Snap & save', 'FontWeight', 'bold', 'ButtonPushedFcn', @(~,~) runStep('Snap', @() captureStill(true), true), ...
-            'Tooltip', 'Grab one frame from each camera and save both under the file names this item needs');
+        uibutton(pg, 'Text', 'Snap & save', 'FontWeight', 'bold', 'ButtonPushedFcn', @(~,~) runStep('Snap', @captureStill, true), ...
+            'Tooltip', 'Save the current live frame from each camera under the file names this item needs');
         items = captureItems(P);
         ui.cap.hint = uilabel(pg, 'WordWrap', 'on', 'VerticalAlignment', 'top', 'FontColor', [0.25 0.25 0.25], ...
             'Text', items(1).hint); % setCaptureExposure updates it when the item changes
@@ -222,7 +217,7 @@ end
         ui.cal.preview_label.Layout.Column = [1 2];
         ui.cal.ax1 = uiaxes(right); ui.cal.ax2 = uiaxes(right);
         prepImageAxes([ui.cal.ax1 ui.cal.ax2]);
-        r = uigridlayout(right, [1 3], 'ColumnWidth', {95, '1x', 220}, 'Padding', [0 0 0 0]);
+        r = uigridlayout(right, [1 4], 'ColumnWidth', {95, '1x', 220, 100}, 'Padding', [0 0 0 0]);
         r.Layout.Column = [1 2];
         uilabel(r, 'Text', 'Saved images:');
         ui.cal.saved = uidropdown(r, 'Items', {'(none yet)'}, 'ValueChangedFcn', @(src,~) showSaved(src.Value), ...
@@ -230,6 +225,8 @@ end
         ui.cal.delete = uibutton(r, 'Text', 'Delete these images (to retake)', 'Enable', 'off', ...
             'ButtonPushedFcn', @(~,~) deleteShownImages(), ...
             'Tooltip', 'Delete the saved images shown above (asks first), then snap them again in 2');
+        ui.cal.back_to_live = uibutton(r, 'Text', 'Back to live', 'Visible', 'off', ...
+            'ButtonPushedFcn', @(~,~) pauseLive(0), 'Tooltip', 'Show the live cameras again');
     end
 
     function browseCalibration()
@@ -283,13 +280,12 @@ end
         if isempty(cams)
             cams = openEyeCameras(P.cam_serials);
             ui.cap.connect.Text = 'Disconnect';
-            ui.cap.live.Enable = 'on';
             ui.cap.status.Text = sprintf('Connected: cam1 %s, cam2 %s (exposure %.3f ms)', ...
                 cams(1).serial, cams(2).serial, cams(1).src.ExposureTime/1000);
             setCaptureExposure();
+            startLive();
         else
-            setLive(false);
-            ui.cap.live.Enable = 'off';
+            stopLive();
             closeEyeCameras(cams);
             cams = [];
             ui.cap.connect.Text = 'Connect cameras';
@@ -311,15 +307,14 @@ end
         end
     end
 
-    function captureStill(save_files)
-        if isempty(cams); error('Connect the cameras first'); end
+    function captureStill()
+        % Save the current live frame from each camera for the selected item
+        if ~isLive(); error('Connect the cameras first'); end
         d = requireFolder(ui.cal.folder.Value, 'calibration');
-        was_live = isLive();
-        setLive(false); % the snap needs the cameras; live resumes 2 s after showing it
-        if was_live
-            resume = onCleanup(@() resumeLiveLater());
-        end
-        [I, exposure_used] = snapEyeCameras(cams, ui.cap.exposure.Value*1000); % ms -> us
+        pauseLive(Inf); % keep the snap on screen; back to live 2 s after we're done
+        resume = onCleanup(@() pauseLive(2));
+        I = {getsnapshot(cams(1).vid), getsnapshot(cams(2).vid)};
+        exposure_ms = cams(1).src.ExposureTime/1000;
         item = selectedCaptureItem();
         is_checkerboard = startsWith(item.label, 'Checkerboard');
         found = true(1, 2);
@@ -341,78 +336,82 @@ end
             end
             title(ax(cam), txt);
         end
-        setShownFiles({});
-        msg = sprintf('%s, %.3f ms', item.label, exposure_used(1)/1000);
+        msg = sprintf('%s, %.3f ms', item.label, exposure_ms);
         if is_checkerboard && ~all(found)
             msg = [msg ' (checkerboard not found in both: calibration will skip this pair)'];
         end
-        if save_files
-            files = captureFiles(d, item);
-            short = strrep(files, [d filesep], '');
-            exists = cellfun(@isfile, files);
-            if any(exists)
-                sel = uiconfirm(fig, sprintf('Overwrite %s?', strjoin(short(exists), ' and ')), 'Snap', ...
-                    'Options', {'Overwrite', 'Cancel'}, 'DefaultOption', 2, 'CancelOption', 2);
-                if ~strcmp(sel, 'Overwrite'); logMsg('Not saved.'); return; end
-            end
-            for cam = 1:2
-                if ~isfolder(fileparts(files{cam})); mkdir(fileparts(files{cam})); end
-                imwrite(I{cam}, files{cam});
-            end
-            msg = [msg ': saved ' strjoin(short, ', ')];
-            refreshCalibration();
-            setShownFiles(files);
-        else
-            msg = [msg ': preview only'];
+        files = captureFiles(d, item);
+        short = strrep(files, [d filesep], '');
+        exists = cellfun(@isfile, files);
+        if any(exists)
+            sel = uiconfirm(fig, sprintf('Overwrite %s?', strjoin(short(exists), ' and ')), 'Snap', ...
+                'Options', {'Overwrite', 'Cancel'}, 'DefaultOption', 2, 'CancelOption', 2);
+            if ~strcmp(sel, 'Overwrite'); logMsg('Not saved.'); return; end
         end
+        for cam = 1:2
+            if ~isfolder(fileparts(files{cam})); mkdir(fileparts(files{cam})); end
+            imwrite(I{cam}, files{cam});
+        end
+        msg = [msg ': saved ' strjoin(short, ', ')];
+        refreshCalibration();
+        setShownFiles(files);
         ui.cal.preview_label.Text = msg;
         logMsg(msg);
     end
 
-    function setLive(on)
-        % Start or stop the live camera view in the Preview panel
-        if on && ~isLive()
-            if isempty(cams); error('Connect the cameras first'); end
-            live.saved = startEyeCamerasLive(cams, ui.cap.exposure.Value*1000); % ms -> us
-            ax = [ui.cal.ax1 ui.cal.ax2];
-            for cam = 1:2
-                cla(ax(cam));
-                res = cams(cam).vid.VideoResolution;
-                live.img(cam) = imagesc(ax(cam), zeros(res(2), res(1), 'uint8'), [0 255]);
-                colormap(ax(cam), gray); axis(ax(cam), 'image');
-                ax(cam).XTick = []; ax(cam).YTick = [];
-            end
-            setShownFiles({});
-            ui.cal.preview_label.Text = 'Live view (cameras free-running, trigger off)';
-            live.timer = timer('ExecutionMode', 'fixedSpacing', 'Period', 0.1, 'BusyMode', 'drop', ...
-                'TimerFcn', @(~,~) updateLive());
-            start(live.timer);
-            ui.cap.live.Value = true;
-        elseif ~on && isLive()
-            stop(live.timer); delete(live.timer); live.timer = [];
-            stopEyeCamerasLive(cams, live.saved);
-            ui.cap.live.Value = false;
-            ui.cal.preview_label.Text = 'Live view stopped';
-        end
+    function startLive()
+        % Stream both cameras and redraw the Preview ~10 times/s (stopLive ends it)
+        live.saved = startEyeCamerasLive(cams, ui.cap.exposure.Value*1000); % ms -> us
+        live.img = [];
+        live.t0 = tic;
+        live.resume_at = 0;
+        live.timer = timer('ExecutionMode', 'fixedSpacing', 'Period', 0.1, 'BusyMode', 'drop', ...
+            'TimerFcn', @(~,~) updateLive());
+        start(live.timer);
+    end
+
+    function stopLive()
+        if ~isLive(); return; end
+        stop(live.timer); delete(live.timer); live.timer = [];
+        stopEyeCamerasLive(cams, live.saved);
+        ui.cal.back_to_live.Visible = 'off';
     end
 
     function tf = isLive()
         tf = ~isempty(live.timer) && isvalid(live.timer);
     end
 
+    function pauseLive(seconds)
+        % Keep other images in Preview for this long (Inf = until Back to live)
+        if ~isLive(); return; end
+        live.resume_at = toc(live.t0) + seconds;
+        ui.cal.back_to_live.Visible = isinf(seconds);
+    end
+
     function updateLive()
         % Timer callback: show the newest frame from each camera
+        if toc(live.t0) < live.resume_at; return; end
         try
             ax = [ui.cal.ax1 ui.cal.ax2];
+            if isempty(live.img) || ~all(isgraphics(live.img)) % Preview was showing something else
+                for cam = 1:2
+                    cla(ax(cam));
+                    live.img(cam) = imagesc(ax(cam), getsnapshot(cams(cam).vid), [0 255]);
+                    colormap(ax(cam), gray); axis(ax(cam), 'image');
+                    ax(cam).XTick = []; ax(cam).YTick = [];
+                end
+                setShownFiles({});
+                ui.cal.back_to_live.Visible = 'off';
+                ui.cal.preview_label.Text = 'Live';
+            end
             for cam = 1:2
-                if cams(cam).vid.FramesAvailable == 0; continue; end
-                I = peekdata(cams(cam).vid, 1);
-                flushdata(cams(cam).vid);
+                I = getsnapshot(cams(cam).vid);
                 live.img(cam).CData = I;
                 title(ax(cam), sprintf('cam%i live: %.1f%% saturated', cam, 100*mean(I(:) == 255)));
             end
+            drawnow limitrate
         catch err
-            setLive(false);
+            stopLive();
             logMsg(['Live view stopped: ' err.message]);
         end
     end
@@ -421,23 +420,6 @@ end
         if ~isLive(); return; end
         for cam = 1:2
             setCameraExposure(cams(cam), ui.cap.exposure.Value*1000); % ms -> us
-        end
-    end
-
-    function resumeLiveLater()
-        % Restart the live view 2 s after a snap, unless something else stopped it
-        t = timer('StartDelay', 2, 'TimerFcn', @(src,~) resumeIfConnected(src));
-        start(t);
-    end
-
-    function resumeIfConnected(t)
-        delete(t);
-        if isvalid(fig) && ~isempty(cams)
-            try
-                setLive(true);
-            catch err
-                logMsg(['Could not resume live view: ' err.message]);
-            end
         end
     end
 
@@ -504,7 +486,7 @@ end
 
     function showSaved(label)
         % Show one saved image pair in the Preview panel
-        setLive(false);
+        pauseLive(Inf);
         d = ui.cal.folder.Value;
         pairs = savedImagePairs(d);
         k = find(strcmp({pairs.label}, label), 1);
@@ -906,7 +888,7 @@ end
 %% ===================== Shared helpers =====================
     function closeGUI()
         if ~isempty(cams)
-            setLive(false);
+            stopLive();
             closeEyeCameras(cams);
         end
         delete(fig);

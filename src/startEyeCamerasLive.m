@@ -1,9 +1,10 @@
 function saved = startEyeCamerasLive(cams, exposure_us)
 % saved = startEyeCamerasLive(cams, exposure_us)
-% Start both cameras free-running (hardware trigger off) for a live view.
-% Read the newest frame with peekdata(cams(k).vid, 1), then flushdata.
-% exposure_us (optional, empty = keep current) applies while live.
-% Pass saved to stopEyeCamerasLive to stop and restore the settings.
+% Start both cameras streaming (camera hardware trigger off) for a live view.
+% Grab the newest frame at any time with getsnapshot(cams(k).vid). The
+% toolbox trigger is 'manual' and never fired, so frames are not logged and
+% memory doesn't fill. exposure_us (optional, empty = keep current) applies
+% while live. Pass saved to stopEyeCamerasLive to stop and restore settings.
 
 if ~exist('exposure_us', 'var'); exposure_us = []; end
 saved = struct('TriggerMode', cell(1, numel(cams)), 'ExposureTime', []);
@@ -14,7 +15,6 @@ for k = 1:numel(cams)
     if ~isempty(exposure_us)
         setCameraExposure(cams(k), exposure_us);
     end
-    cams(k).vid.FramesPerTrigger = Inf;
-    cams(k).vid.LoggingMode = 'memory';
+    triggerconfig(cams(k).vid, 'manual');
     start(cams(k).vid);
 end
