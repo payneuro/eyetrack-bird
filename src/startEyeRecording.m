@@ -26,14 +26,15 @@ if strcmp(format, 'h264')
     end
     P.ffmpeg = ffmpeg;
 end
-rec = struct('cams', cams, 'format', format, 'files', {files}, 'exposure0', [cams(1).src.ExposureTime, cams(2).src.ExposureTime]);
+rec = struct('cams', cams, 'format', format, 'files', {files}, 'exposure0', [cams(1).src.ExposureTime, cams(2).src.ExposureTime], ...
+    'trigger', {cell(1, 2)});
 
 for k = 1:2
     vid = cams(k).vid;
     if ~isempty(exposure_us)
         setCameraExposure(cams(k), exposure_us);
     end
-    cams(k).src.TriggerMode = 'On'; % frame on each TTL (trigger source and edge as set up in SpinView)
+    rec.trigger{k} = setHardwareTrigger(cams(k).src, P); % one frame per TTL
     triggerconfig(vid, 'immediate');
     vid.FramesPerTrigger = Inf;
     state = struct('written', 0, 'last', [], 'proc', [], 'pipe', [], 'error', '');
@@ -53,6 +54,22 @@ end
 for k = 1:2
     start(cams(k).vid);
 end
+end
+
+function txt = setHardwareTrigger(src, P)
+% Set every trigger setting explicitly (don't rely on what SpinView left):
+% each rising edge on P.trigger_line starts one frame. Returns the settings
+% read back from the camera.
+info = propinfo(src);
+src.TriggerMode = 'Off'; % the camera only accepts trigger changes while off
+if isfield(info, 'TriggerSelector'); src.TriggerSelector = 'FrameStart'; end
+src.TriggerSource = P.trigger_line;
+src.TriggerActivation = 'RisingEdge';
+if isfield(info, 'ExposureMode'); src.ExposureMode = 'Timed'; end
+src.TriggerMode = 'On';
+names = intersect({'TriggerSelector', 'TriggerMode', 'TriggerSource', 'TriggerActivation', 'TriggerOverlap', 'ExposureMode'}, ...
+    fieldnames(info), 'stable');
+txt = strjoin(cellfun(@(n) sprintf('%s=%s', n, src.(n)), names, 'UniformOutput', false), ', ');
 end
 
 function [proc, pipe] = startEncoder(P, res, file)

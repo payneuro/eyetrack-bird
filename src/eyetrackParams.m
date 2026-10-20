@@ -20,7 +20,8 @@ P.axes_thresh = 250;                   % intensity threshold for saturated axes 
 
 % Recording
 P.downsample_eye = 6;       % QTM frames per eye camera frame (QTM Out2 divisor)
-P.eye_fps = 50;             % Eye camera frame rate set by the QTM trigger (written into the video files)
+P.trigger_line = 'Line3'; % camera input wired to QTM Out 2 (one frame per rising edge)
+P.eye_fps = 50;            % Eye camera frame rate set by the QTM trigger (written into the video files)
 P.record_exposure_ms = 16.003; % (ms) eye camera exposure while recording
 P.ffmpeg = 'C:\Program Files\ffmpeg-7.1.1\bin\ffmpeg.exe'; % for compressed (GPU H.264) recording
 

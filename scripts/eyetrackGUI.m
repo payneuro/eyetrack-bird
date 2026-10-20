@@ -25,7 +25,7 @@ vids = struct('folder', '', 'v1', [], 'v2', [], 'N', 0);
 cams = []; % connected eye cameras (openEyeCameras), [] if not connected
 shown_files = {}; % saved images shown in the calibration Preview, for Delete
 live = struct('timer', [], 'saved', [], 'img', gobjects(1, 2), 't0', [], 'resume_at', 0); % live view; paused until toc(t0) >= resume_at
-rec = struct('state', [], 'timer', [], 'img', gobjects(1, 2), 't0', []); % recording (startEyeRecording), state = [] when not recording
+rec = struct('state', [], 'timer', [], 'img', gobjects(1, 2), 't0', [], 'n_prev', [0 0], 't_prev', 0); % recording (startEyeRecording), state = [] when not recording
 
 %% Layout
 fig = uifigure('Name', 'eyetrack-bird', 'Position', [80 60 1280 840], ...
@@ -683,6 +683,8 @@ end
         ui.rec.preview_label.Text = 'Armed: waiting for QTM';
         ui.rec.count.Text = 'Now press the space bar in QTM.';
         logMsg(sprintf('Recording armed (%s) into %s. Press the space bar in QTM.', format, d));
+        logMsg(sprintf('Trigger: cam1 %s; cam2 %s', rec.state.trigger{:}));
+        rec.n_prev = [0 0]; rec.t_prev = 0;
     end
 
     function updateRecording()
@@ -691,7 +693,10 @@ end
             n = [rec.state.cams(1).vid.FramesAcquired, rec.state.cams(2).vid.FramesAcquired];
             if all(n == 0); return; end
             s = [rec.state.cams(1).vid.UserData, rec.state.cams(2).vid.UserData];
-            ui.rec.count.Text = sprintf('Recording: cam1 %i, cam2 %i frames', n);
+            t = toc(rec.t0);
+            fps = (n - rec.n_prev)/(t - rec.t_prev); % frames per second since the last update (= trigger rate)
+            rec.n_prev = n; rec.t_prev = t;
+            ui.rec.count.Text = sprintf('Recording: cam1 %i, cam2 %i frames (%.0f, %.0f fps)', n, fps);
             if any(~cellfun(@isempty, {s.error}))
                 ui.rec.count.Text = [ui.rec.count.Text ' (ERROR: ' strjoin({s.error}, '; ') ')'];
             end
