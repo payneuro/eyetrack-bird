@@ -667,7 +667,12 @@ end
             if ~strcmp(sel, 'Record here anyway'); return; end
         end
         stopLive();
-        rec.state = startEyeRecording(cams, d, format, P, ui.rec.exposure.Value*1000); % ms -> us
+        try
+            rec.state = startEyeRecording(cams, d, format, P, ui.rec.exposure.Value*1000); % ms -> us
+        catch err
+            startLive(); % back to the live view, then report the error
+            rethrow(err);
+        end
         rec.img = gobjects(1, 2);
         rec.t0 = tic;
         rec.timer = timer('ExecutionMode', 'fixedSpacing', 'Period', 0.5, 'BusyMode', 'drop', ...

@@ -15,6 +15,17 @@ files = {fullfile(folder, ['cam1' ext.(format)]), fullfile(folder, ['cam2' ext.(
 if any(cellfun(@isfile, files))
     error('%s already has camera videos; use a new session folder.', folder);
 end
+if strcmp(format, 'h264')
+    [ffmpeg, gpu_ok, version] = findFfmpeg(P.ffmpeg); % before touching the cameras
+    if isempty(ffmpeg)
+        error(['ffmpeg not found at %s or on the PATH, so compressed recording can''t start. ' ...
+            'See the ffmpeg row in the Settings tab''s requirements list, or choose Raw.'], P.ffmpeg);
+    elseif ~gpu_ok
+        error(['ffmpeg %s (%s) can''t encode on the NVIDIA GPU (h264_nvenc). ffmpeg 8+ needs a newer NVIDIA ' ...
+            'driver: update the driver or use ffmpeg 7.1 (Settings tab, ffmpeg row), or choose Raw.'], version, ffmpeg);
+    end
+    P.ffmpeg = ffmpeg;
+end
 rec = struct('cams', cams, 'format', format, 'files', {files}, 'exposure0', [cams(1).src.ExposureTime, cams(2).src.ExposureTime]);
 
 for k = 1:2
