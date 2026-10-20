@@ -3,7 +3,8 @@ function varargout = eyetrackGUI()
 % fig = eyetrackGUI()    also return the figure handle
 % GUI for the dual-camera eye tracking pipeline:
 %   Settings    - paths and constants (defaults from src/eyetrackParams.m)
-%   Calibration - check a calibration folder, preview images, run calibrateCameras
+%   Calibration - capture calibration images from the cameras, check and
+%                 preview them (delete to retake), run calibrateCameras
 %   Behavior    - check one behavior session, tune tracker settings on a preview
 %                 frame, label the beak, track, and analyze it
 %   Birds       - combine all behavior sessions per bird (runEyetrackAll) and plot the summary
@@ -20,9 +21,12 @@ stop_requested = false;
 ui = struct;
 vids = struct('folder', '', 'v1', [], 'v2', [], 'N', 0);
 calib_cycle = struct('row', 0, 'k', 0);
+cams = []; % connected eye cameras (openEyeCameras), [] if not connected
+shown_files = {}; % saved images shown in the calibration Preview, for Delete
 
 %% Layout
-fig = uifigure('Name', 'eyetrack-bird', 'Position', [80 60 1280 840]);
+fig = uifigure('Name', 'eyetrack-bird', 'Position', [80 60 1280 840], ...
+    'CloseRequestFcn', @(~,~) closeGUI());
 gmain = uigridlayout(fig, [3 1], 'RowHeight', {'1x', 150, 22}, 'Padding', [6 6 6 6]);
 tg = uitabgroup(gmain);
 log_area = uitextarea(gmain, 'Editable', 'off', 'FontName', 'Consolas', 'FontSize', 11);
@@ -157,7 +161,7 @@ end
 %% ===================== Calibration tab =====================
     function buildCalibrationTab()
         g = uigridlayout(tab_cal, [1 2], 'ColumnWidth', {480, '1x'});
-        left = uigridlayout(g, [4 1], 'RowHeight', {96, 158, '1x', 104}, 'Padding', [0 0 0 0]);
+        left = uigridlayout(g, [4 1], 'RowHeight', {96, 190, '1x', 104}, 'Padding', [0 0 0 0]);
 
         % 1. Folder
         p = uipanel(left, 'Title', '1. Calibration folder', 'FontWeight', 'bold');
@@ -174,16 +178,27 @@ end
         uibutton(r, 'Text', 'Create folder with cam1, cam2, lights, axes', 'ButtonPushedFcn', @(~,~) createCalibrationFolder(), ...
             'Tooltip', 'Make <calibration root>\<YYMMDD> with empty cam1, cam2, lights, and axes subfolders to save images into');
 
-        % 2. Capture (outside MATLAB)
-        p = uipanel(left, 'Title', '2. Capture images in SpinView and QTM (see README section 2)', 'FontWeight', 'bold');
-        pg = uigridlayout(p, [1 1], 'Padding', [6 4 6 4]);
-        helpLabel(pg, strjoin({ ...
-            ['cam1\, cam2\:  4-10 checkerboard pairs, both cameras at once, same file names ' ...
-            'in both folders'], ...
-            ['lights\:  one LED on at a time; for each camera/light, camX_lightY_checkerboard.bmp ' ...
-            '(long exposure, ~6000 us) and camX_lightY.bmp (min exposure, LED spot saturated)'], ...
-            ['axes\:  cam1.bmp and cam2.bmp with the triangle markers saturated, plus qtm.mat ' ...
-            'exported from QTM with markers labeled p0, px, py']}, newline));
+        % 2. Capture (from MATLAB; the QTM part of the axes step is done in QTM)
+        p = uipanel(left, 'Title', '2. Capture images (close SpinView first; targets must be still)', 'FontWeight', 'bold');
+        pg = uigridlayout(p, [4 1], 'RowHeight', {26, 26, 28, '1x'}, 'Padding', [6 4 6 4]);
+        r = uigridlayout(pg, [1 2], 'ColumnWidth', {140, '1x'}, 'Padding', [0 0 0 0]);
+        ui.cap.connect = uibutton(r, 'Text', 'Connect cameras', 'ButtonPushedFcn', @(~,~) runStep('Connect cameras', @toggleCameras, true), ...
+            'Tooltip', 'Connect to both Blackfly cameras (matched to cam1/cam2 by serial number in eyetrackParams.m)');
+        ui.cap.status = uilabel(r, 'Text', 'Not connected');
+        r = uigridlayout(pg, [1 4], 'ColumnWidth', {40, '1x', 95, 70}, 'Padding', [0 0 0 0]);
+        uilabel(r, 'Text', 'What:');
+        ui.cap.what = uidropdown(r, 'Items', {captureItems(P).label}, 'ValueChangedFcn', @(~,~) setCaptureExposure());
+        uilabel(r, 'Text', 'Exposure (us):', 'HorizontalAlignment', 'right');
+        ui.cap.exposure = uieditfield(r, 'numeric', 'Limits', [12 30e6], 'Value', 16000, 'HorizontalAlignment', 'left', ...
+            'Tooltip', 'Applied to both cameras for this capture only; their own exposure is restored afterward');
+        r = uigridlayout(pg, [1 2], 'Padding', [0 0 0 0]);
+        uibutton(r, 'Text', 'Preview (don''t save)', 'ButtonPushedFcn', @(~,~) runStep('Preview capture', @() captureStill(false), true), ...
+            'Tooltip', 'Grab one frame from each camera and show it in Preview, without saving');
+        uibutton(r, 'Text', 'Snap & save', 'FontWeight', 'bold', 'ButtonPushedFcn', @(~,~) runStep('Snap', @() captureStill(true), true), ...
+            'Tooltip', 'Grab one frame from each camera and save both under the file names this item needs');
+        helpLabel(pg, ['Lights: one LED on at a time. Axes: also record the triangle in QTM and export ' ...
+            'axes\qtm.mat with markers labeled p0, px, py. Snaps switch the hardware trigger off ' ...
+            'briefly; the two cameras are read ~0.5 s apart.']);
 
         % 3. Check
         p = uipanel(left, 'Title', '3. Check files (red = missing; click a row to preview)', 'FontWeight', 'bold');
@@ -208,11 +223,15 @@ end
 
         % Preview (for step 3)
         p = uipanel(g, 'Title', 'Preview', 'FontWeight', 'bold');
-        right = uigridlayout(p, [2 2], 'RowHeight', {22, '1x'}, 'Padding', [6 6 6 6]);
+        right = uigridlayout(p, [3 2], 'RowHeight', {22, '1x', 28}, 'Padding', [6 6 6 6]);
         ui.cal.preview_label = uilabel(right, 'Text', 'Click a row in 3 to preview its images (click again for the next pair)');
         ui.cal.preview_label.Layout.Column = [1 2];
         ui.cal.ax1 = uiaxes(right); ui.cal.ax2 = uiaxes(right);
         prepImageAxes([ui.cal.ax1 ui.cal.ax2]);
+        ui.cal.delete = uibutton(right, 'Text', 'Delete these images (to retake)', 'Enable', 'off', ...
+            'ButtonPushedFcn', @(~,~) deleteShownImages(), ...
+            'Tooltip', 'Delete the saved images shown above (asks first), then snap them again in 2');
+        ui.cal.delete.Layout.Column = 1;
     end
 
     function browseCalibration()
@@ -258,6 +277,111 @@ end
         summarizeCalibration();
     end
 
+    function toggleCameras()
+        if isempty(cams)
+            cams = openEyeCameras(P.cam_serials);
+            ui.cap.connect.Text = 'Disconnect';
+            ui.cap.status.Text = sprintf('Connected: cam1 %s, cam2 %s (exposure %.0f us)', ...
+                cams(1).serial, cams(2).serial, cams(1).src.ExposureTime);
+            setCaptureExposure();
+        else
+            closeEyeCameras(cams);
+            cams = [];
+            ui.cap.connect.Text = 'Connect cameras';
+            ui.cap.status.Text = 'Not connected';
+        end
+    end
+
+    function setCaptureExposure()
+        % Fill in the selected item's exposure (NaN = the camera's current setting)
+        item = selectedCaptureItem();
+        e = item.exposure;
+        if isnan(e) && ~isempty(cams)
+            e = cams(1).src.ExposureTime;
+        end
+        if ~isnan(e)
+            ui.cap.exposure.Value = e;
+        end
+    end
+
+    function captureStill(save_files)
+        if isempty(cams); error('Connect the cameras first'); end
+        d = requireFolder(ui.cal.folder.Value, 'calibration');
+        [I, exposure_used] = snapEyeCameras(cams, ui.cap.exposure.Value);
+        item = selectedCaptureItem();
+        is_checkerboard = startsWith(item.label, 'Checkerboard');
+        found = true(1, 2);
+        ax = [ui.cal.ax1 ui.cal.ax2];
+        for cam = 1:2
+            cla(ax(cam));
+            imagesc(ax(cam), I{cam}); colormap(ax(cam), gray); axis(ax(cam), 'image');
+            ax(cam).XTick = []; ax(cam).YTick = [];
+            txt = sprintf('cam%i: %.1f%% saturated', cam, 100*mean(I{cam}(:) == 255));
+            if is_checkerboard % same detection calibration uses
+                [pts, board] = detectCheckerboardPoints(I{cam});
+                found(cam) = ~isempty(pts);
+                if found(cam)
+                    hold(ax(cam), 'on'); plot(ax(cam), pts(:,1), pts(:,2), 'g+'); hold(ax(cam), 'off');
+                    txt = sprintf('%s, checkerboard %ix%i found', txt, board(1), board(2));
+                else
+                    txt = [txt ', NO checkerboard found'];
+                end
+            end
+            title(ax(cam), txt);
+        end
+        setShownFiles({});
+        msg = sprintf('%s, %.0f us', item.label, exposure_used(1));
+        if is_checkerboard && ~all(found)
+            msg = [msg ' (checkerboard not found in both: calibration will skip this pair)'];
+        end
+        if save_files
+            files = captureFiles(d, item);
+            short = strrep(files, [d filesep], '');
+            exists = cellfun(@isfile, files);
+            if any(exists)
+                sel = uiconfirm(fig, sprintf('Overwrite %s?', strjoin(short(exists), ' and ')), 'Snap', ...
+                    'Options', {'Overwrite', 'Cancel'}, 'DefaultOption', 2, 'CancelOption', 2);
+                if ~strcmp(sel, 'Overwrite'); logMsg('Not saved.'); return; end
+            end
+            for cam = 1:2
+                if ~isfolder(fileparts(files{cam})); mkdir(fileparts(files{cam})); end
+                imwrite(I{cam}, files{cam});
+            end
+            msg = [msg ': saved ' strjoin(short, ', ')];
+            refreshCalibration();
+            setShownFiles(files);
+        else
+            msg = [msg ': preview only'];
+        end
+        ui.cal.preview_label.Text = msg;
+        logMsg(msg);
+    end
+
+    function setShownFiles(files)
+        shown_files = files(~cellfun(@isempty, files));
+        ui.cal.delete.Enable = any(cellfun(@isfile, shown_files));
+    end
+
+    function deleteShownImages()
+        files = shown_files(cellfun(@isfile, shown_files));
+        if isempty(files); return; end
+        d = ui.cal.folder.Value;
+        short = strrep(files, [d filesep], '');
+        sel = uiconfirm(fig, sprintf('Delete %s?', strjoin(short, ' and ')), 'Delete images', ...
+            'Options', {'Delete', 'Cancel'}, 'DefaultOption', 2, 'CancelOption', 2);
+        if ~strcmp(sel, 'Delete'); return; end
+        cellfun(@delete, files);
+        logMsg(['Deleted ' strjoin(short, ', ')]);
+        cla(ui.cal.ax1); cla(ui.cal.ax2);
+        setShownFiles({});
+        refreshCalibration();
+    end
+
+    function item = selectedCaptureItem()
+        items = captureItems(P);
+        item = items(strcmp({items.label}, ui.cap.what.Value));
+    end
+
     function openStereoApp()
         d = requireFolder(ui.cal.folder.Value, 'calibration');
         stereoCameraCalibrator(fullfile(d, 'cam1'), fullfile(d, 'cam2'), P.square_size);
@@ -301,12 +425,14 @@ end
             k = mod(calib_cycle.k - 1, n) + 1;
             showImage(ui.cal.ax1, pick(f1, k), 'cam1');
             showImage(ui.cal.ax2, pick(f2, k), 'cam2');
+            setShownFiles({pick(f1, k), pick(f2, k)});
             ui.cal.preview_label.Text = sprintf('Checkerboard pair %i of %i', k, n);
         elseif ~isempty(tok)
             base = sprintf('cam%s_light%s', tok{2}, tok{1});
             spot = fullfile(d, 'lights', [base '.bmp']);
             showImage(ui.cal.ax1, spot, [base '.bmp']);
             showImage(ui.cal.ax2, fullfile(d, 'lights', [base '_checkerboard.bmp']), [base '_checkerboard.bmp']);
+            setShownFiles({spot, fullfile(d, 'lights', [base '_checkerboard.bmp'])});
             msg = '';
             if isfile(spot)
                 I = imread(spot);
@@ -316,6 +442,7 @@ end
         elseif startsWith(item, 'Axes')
             showImage(ui.cal.ax1, fullfile(d, 'axes', 'cam1.bmp'), 'axes cam1');
             showImage(ui.cal.ax2, fullfile(d, 'axes', 'cam2.bmp'), 'axes cam2');
+            setShownFiles({fullfile(d, 'axes', 'cam1.bmp'), fullfile(d, 'axes', 'cam2.bmp')});
             ui.cal.preview_label.Text = sprintf('Axes: markers must have intensity > %g for detection', P.axes_thresh);
         end
     end
@@ -696,6 +823,11 @@ end
     end
 
 %% ===================== Shared helpers =====================
+    function closeGUI()
+        if ~isempty(cams); closeEyeCameras(cams); end
+        delete(fig);
+    end
+
     function runStep(name, fn, capture)
         % Run fn, report errors in the log and a dialog. If capture, copy the
         % command window output into the log.
@@ -779,6 +911,30 @@ for ii = 1:numel(ax)
     ax(ii).Box = 'on';
     colormap(ax(ii), gray);
 end
+end
+
+function items = captureItems(P)
+% Calibration images the Capture panel can take. exposure is in us (NaN = the
+% camera's current setting); file is where each camera's image is saved, with
+% %i = camera number and <next> = the next unused checkerboard pair number.
+items = struct( ...
+    'label', {'Checkerboard pair', 'Light 1: LED spot', 'Light 1: mirror checkerboard', ...
+              'Light 2: LED spot', 'Light 2: mirror checkerboard', 'Axes triangle'}, ...
+    'exposure', {NaN, P.exposure_led_spot, P.exposure_mirror_checkerboard, ...
+                 P.exposure_led_spot, P.exposure_mirror_checkerboard, NaN}, ...
+    'file', {'cam%i\<next>.bmp', 'lights\cam%i_light1.bmp', 'lights\cam%i_light1_checkerboard.bmp', ...
+             'lights\cam%i_light2.bmp', 'lights\cam%i_light2_checkerboard.bmp', 'axes\cam%i.bmp'});
+end
+
+function files = captureFiles(d, item)
+% Full paths where a capture item is saved, {cam1 file, cam2 file}.
+% <next> = the lowest pair number not used in cam1 or cam2 (fills gaps left by deletes)
+n = 1;
+while isfile(fullfile(d, 'cam1', sprintf('%i.bmp', n))) || isfile(fullfile(d, 'cam2', sprintf('%i.bmp', n)))
+    n = n + 1;
+end
+name = strrep(item.file, '<next>', sprintf('%i', n));
+files = {fullfile(d, strrep(name, '%i', '1')), fullfile(d, strrep(name, '%i', '2'))};
 end
 
 function c = yesNo(tf)

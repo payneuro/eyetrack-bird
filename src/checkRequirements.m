@@ -13,23 +13,19 @@ rows = {
         exist('imgaussfilt', 'file') > 0, sprintf(get_addon, 'Image Processing Toolbox')
     'Signal Processing Toolbox', 'Required: tracking, cleaning', ...
         exist('filtfilt', 'file') > 0, sprintf(get_addon, 'Signal Processing Toolbox')
-    'Spinnaker SDK (SpinView)', 'Required: camera settings and recording', ...
+    'Spinnaker SDK (SpinView)', 'Required: recording; camera driver for MATLAB capture', ...
         spinnakerInstalled(), 'Download the full Spinnaker SDK for Windows x64 from Teledyne FLIR (includes SpinView, USB3 drivers, and the GenTL producer)'
     'Qualisys Track Manager (QTM)', 'Required: head tracking, trigger, axes calibration', ...
         qtmInstalled(), 'Install from Qualisys (license needed)'
-    'Image Acquisition Toolbox', 'Planned: capture from MATLAB', ...
+    'Image Acquisition Toolbox', 'Required: calibration capture', ...
         exist('videoinput', 'file') > 0, sprintf(get_addon, 'Image Acquisition Toolbox')
-    'GenICam Interface support package', 'Planned: capture from MATLAB', ...
+    'GenICam Interface support package', 'Required: calibration capture', ...
         gentlInstalled(), [sprintf(get_addon, 'GenICam Interface') ' (Image Acquisition Toolbox support package)']
-    'ffmpeg', 'Planned: GPU video encoding', ...
-        ffmpegInstalled(), 'Download a Windows build with NVENC (gyan.dev "full"), add its bin folder to PATH'
-    'Parallel Computing Toolbox', 'Optional: GPU processing', ...
-        exist('gpuDevice', 'file') > 0, sprintf(get_addon, 'Parallel Computing Toolbox')
     };
 T = cell2table(rows, 'VariableNames', {'item', 'needed_for', 'ok', 'how_to_install'});
 T.ok = logical(T.ok);
 T.url = repmat({''}, height(T), 1);
-T.url{strcmp(T.item, 'ffmpeg')} = 'https://www.gyan.dev/ffmpeg/builds/';
+T.url{strcmp(T.item, 'Spinnaker SDK (SpinView)')} = 'https://www.teledynevisionsolutions.com/products/spinnaker-sdk/';
 T = [T(~T.ok,:); T(T.ok,:)]; % missing first
 end
 
@@ -51,9 +47,4 @@ try
     tf = any(strcmpi(info.InstalledAdaptors, 'gentl'));
 catch
 end
-end
-
-function tf = ffmpegInstalled()
-[status, ~] = system('where ffmpeg');
-tf = status == 0;
 end

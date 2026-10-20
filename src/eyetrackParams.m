@@ -8,10 +8,15 @@ P.data_root  = 'Z:\Hannah\eyetrack\behavior';    % Session folders, e.g. HC13_23
 P.calib_root = 'Z:\Hannah\eyetrack\calibration'; % Calibration folders named YYMMDD
 P.camfilename = 'cam%i*.avi';                    % Eye video template, %i = camera number
 
+% Cameras (Blackfly S serial numbers)
+P.cam_serials = {'22048634', '21554508'}; % {cam1 = left, cam2 = right}
+
 % Calibration
-P.square_size = 4;          % (mm) checkerboard square size
-P.mirror_thickness = -0.1;  % (mm) checkerboard sticker on the front-coated Thorlabs mirror
-P.axes_thresh = 250;        % Intensity threshold for saturated axes markers (after smoothing)
+P.square_size = 4;                     % (mm) checkerboard square size
+P.mirror_thickness = -0.1;             % (mm) checkerboard sticker on the front-coated Thorlabs mirror
+P.exposure_led_spot = 19;              % (us) LED spot images: only the reflection shows
+P.exposure_mirror_checkerboard = 6000; % (us) mirror checkerboard images
+P.axes_thresh = 250;                   % intensity threshold for saturated axes markers (after smoothing)
 
 % Recording
 P.downsample_eye = 6;       % QTM frames per eye camera frame (QTM Out2 divisor)

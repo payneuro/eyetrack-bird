@@ -28,17 +28,49 @@ for cam = 1:2
     end
 end
 
-% Axes
+% Axes: both images plus the QTM export (one .mat with markers labeled p0, px, py)
 has = [isfile(fullfile(filepath_camera,'axes','cam1.bmp')), ...
-       isfile(fullfile(filepath_camera,'axes','cam2.bmp')), ...
-       numel(dir(fullfile(filepath_camera,'axes','*.mat'))) == 1];
-add('Axes images + QTM', all(has), missingNote({'cam1.bmp','cam2.bmp','one .mat QTM export'}, has));
+       isfile(fullfile(filepath_camera,'axes','cam2.bmp'))];
+msg = missingNote({'cam1.bmp','cam2.bmp'}, has);
+[qtm_ok, qtm_msg] = checkAxesQtm(fullfile(filepath_camera,'axes'));
+if ~qtm_ok
+    if all(has); msg = qtm_msg; else; msg = [msg '; ' qtm_msg]; end
+end
+add('Axes images + QTM', all(has) && qtm_ok, msg);
 
 % Results
 add('calib.mat (stereo + lights)', isfile(fullfile(filepath_camera,'calib.mat')), 'written by calibration');
 add('axes.mat (common frame)', isfile(fullfile(filepath_camera,'axes.mat')), 'written by calibration');
 
 T = table(item, logical(ok), note, 'VariableNames', {'item','ok','note'});
+end
+
+function [ok, msg] = checkAxesQtm(folder)
+% The axes QTM export: exactly one .mat in folder, with labeled markers p0, px, py
+ok = false;
+f = dir(fullfile(folder, '*.mat'));
+if isempty(f)
+    msg = 'missing QTM export (.mat)';
+    return
+elseif numel(f) > 1
+    msg = sprintf('%i .mat files; keep only the QTM export', numel(f));
+    return
+end
+try
+    s = load(fullfile(folder, f.name));
+    q = s.(f.name(1:end-4)); % QTM names the variable after the file
+    labels = q.Trajectories.Labeled.Labels;
+catch
+    msg = [f.name ' is not a QTM export with labeled trajectories'];
+    return
+end
+missing = setdiff({'p0', 'px', 'py'}, labels);
+if isempty(missing)
+    ok = true;
+    msg = 'ok';
+else
+    msg = [f.name ' missing labels ' strjoin(missing, ', ')];
+end
 end
 
 function msg = missingNote(names, has)
