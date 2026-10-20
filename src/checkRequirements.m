@@ -17,15 +17,18 @@ rows = {
         spinnakerInstalled(), 'Download the full Spinnaker SDK for Windows x64 from Teledyne FLIR (includes SpinView, USB3 drivers, and the GenTL producer)'
     'Qualisys Track Manager (QTM)', 'Required: head tracking, trigger, axes calibration', ...
         qtmInstalled(), 'Install from Qualisys'
-    'Image Acquisition Toolbox', 'Required: calibration capture', ...
+    'Image Acquisition Toolbox', 'Required: calibration capture, recording', ...
         exist('videoinput', 'file') > 0, sprintf(get_addon, 'Image Acquisition Toolbox')
-    'GenICam Interface support package', 'Required: calibration capture', ...
+    'GenICam Interface support package', 'Required: calibration capture, recording', ...
         gentlInstalled(), [sprintf(get_addon, 'GenICam Interface') ' (Image Acquisition Toolbox support package)']
+    'ffmpeg 7.1', 'Required: compressed recording (NVIDIA GPU)', ...
+        isfile(eyetrackParams().ffmpeg), 'Download the ffmpeg 7.1 full build, unzip it, and set P.ffmpeg in eyetrackParams.m (ffmpeg 8+ needs NVIDIA driver 610+)'
     };
 T = cell2table(rows, 'VariableNames', {'item', 'needed_for', 'ok', 'how_to_install'});
 T.ok = logical(T.ok);
 T.url = repmat({''}, height(T), 1);
 T.url{strcmp(T.item, 'Spinnaker SDK (SpinView)')} = 'https://www.teledynevisionsolutions.com/products/spinnaker-sdk/';
+T.url{strcmp(T.item, 'ffmpeg 7.1')} = 'https://github.com/GyanD/codexffmpeg/releases/tag/7.1.1';
 T = [T(~T.ok,:); T(T.ok,:)]; % missing first
 end
 

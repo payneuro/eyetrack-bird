@@ -5,6 +5,8 @@ function varargout = eyetrackGUI()
 %   Settings    - paths and constants (defaults from src/eyetrackParams.m)
 %   Calibration - capture calibration images from the cameras, check and
 %                 preview them (delete to retake), run calibrateCameras
+%   Record      - live view, then record both cameras on QTM's trigger
+%                 (compressed on the GPU or raw)
 %   Behavior    - check one behavior session, tune tracker settings on a preview
 %                 frame, label the beak, track, and analyze it
 %   Birds       - combine all behavior sessions per bird (runEyetrackAll) and plot the summary
@@ -23,6 +25,7 @@ vids = struct('folder', '', 'v1', [], 'v2', [], 'N', 0);
 cams = []; % connected eye cameras (openEyeCameras), [] if not connected
 shown_files = {}; % saved images shown in the calibration Preview, for Delete
 live = struct('timer', [], 'saved', [], 'img', gobjects(1, 2), 't0', [], 'resume_at', 0); % live view; paused until toc(t0) >= resume_at
+rec = struct('state', [], 'timer', [], 'img', gobjects(1, 2), 't0', []); % recording (startEyeRecording), state = [] when not recording
 
 %% Layout
 fig = uifigure('Name', 'eyetrack-bird', 'Position', [80 60 1280 840], ...
@@ -34,14 +37,17 @@ status_label = uilabel(gmain, 'Text', 'Ready');
 
 tab_set = uitab(tg, 'Title', 'Settings');
 tab_cal = uitab(tg, 'Title', 'Calibration');
+tab_rec = uitab(tg, 'Title', 'Record');
 tab_ses = uitab(tg, 'Title', 'Behavior');
 tab_bird = uitab(tg, 'Title', 'Birds');
 
 buildSettingsTab();
 buildCalibrationTab();
+buildRecordTab();
 buildSessionTab();
 buildBirdTab();
 tg.SelectedTab = tab_set;
+tg.SelectionChangedFcn = @(~,~) moveLive(); % live view follows the Calibration and Record tabs
 logMsg('eyetrack-bird GUI. Settings loaded; edit them in the Settings tab.');
 if nargout > 0
     varargout{1} = fig; % no output unless asked, so calling without ; prints nothing
@@ -187,7 +193,7 @@ end
             'ValueDisplayFormat', '%.3f', ...
             'ValueChangedFcn', @(~,~) applyLiveExposure(), ...
             'Tooltip', 'Applied to both cameras for this capture only; their own exposure is restored afterward');
-        uibutton(pg, 'Text', 'Snap & save', 'FontWeight', 'bold', 'ButtonPushedFcn', @(~,~) runStep('Snap', @captureStill, true), ...
+        uibutton(pg, 'Text', 'Save images', 'FontWeight', 'bold', 'ButtonPushedFcn', @(~,~) runStep('Save images', @captureStill, true), ...
             'Tooltip', 'Save the current live frame from each camera under the file names this item needs');
         items = captureItems(P);
         ui.cap.hint = uilabel(pg, 'WordWrap', 'on', 'VerticalAlignment', 'top', 'FontColor', [0.25 0.25 0.25], ...
@@ -224,7 +230,7 @@ end
             'Tooltip', 'Every image pair saved in this calibration folder');
         ui.cal.delete = uibutton(r, 'Text', 'Delete these images (to retake)', 'Enable', 'off', ...
             'ButtonPushedFcn', @(~,~) deleteShownImages(), ...
-            'Tooltip', 'Delete the saved images shown above (asks first), then snap them again in 2');
+            'Tooltip', 'Delete the saved images shown above (asks first), then save them again in 2');
         ui.cal.back_to_live = uibutton(r, 'Text', 'Back to live', 'Visible', 'off', ...
             'ButtonPushedFcn', @(~,~) pauseLive(0), 'Tooltip', 'Show the live cameras again');
     end
@@ -281,19 +287,21 @@ end
     end
 
     function toggleCameras()
+        % Shared by the Calibration and Record tabs
+        if ~isempty(rec.state); error('Stop the recording first'); end
         if isempty(cams)
             cams = openEyeCameras(P.cam_serials);
-            ui.cap.connect.Text = 'Disconnect';
-            ui.cap.status.Text = sprintf('Connected: cam1 %s, cam2 %s (exposure %.3f ms)', ...
-                cams(1).serial, cams(2).serial, cams(1).src.ExposureTime/1000);
+            [ui.cap.connect.Text, ui.rec.connect.Text] = deal('Disconnect');
+            [ui.cap.status.Text, ui.rec.status.Text] = deal(sprintf('Connected: cam1 %s, cam2 %s (exposure %.3f ms)', ...
+                cams(1).serial, cams(2).serial, cams(1).src.ExposureTime/1000));
             setCaptureExposure();
             startLive();
         else
             stopLive();
             closeEyeCameras(cams);
             cams = [];
-            ui.cap.connect.Text = 'Connect cameras';
-            ui.cap.status.Text = 'Not connected';
+            [ui.cap.connect.Text, ui.rec.connect.Text] = deal('Connect cameras');
+            [ui.cap.status.Text, ui.rec.status.Text] = deal('Not connected');
         end
     end
 
@@ -315,7 +323,7 @@ end
         % Save the current live frame from each camera for the selected item
         if ~isLive(); error('Connect the cameras first'); end
         d = requireFolder(ui.cal.folder.Value, 'calibration');
-        pauseLive(Inf); % keep the snap on screen; back to live 2 s after we're done
+        pauseLive(Inf); % keep the saved frame on screen; back to live 2 s after we're done
         resume = onCleanup(@() pauseLive(2));
         I = {getsnapshot(cams(1).vid), getsnapshot(cams(2).vid)};
         exposure_ms = cams(1).src.ExposureTime/1000;
@@ -333,7 +341,7 @@ end
         short = strrep(files, [d filesep], '');
         exists = cellfun(@isfile, files);
         if any(exists)
-            sel = uiconfirm(fig, sprintf('Overwrite %s?', strjoin(short(exists), ' and ')), 'Snap', ...
+            sel = uiconfirm(fig, sprintf('Overwrite %s?', strjoin(short(exists), ' and ')), 'Save images', ...
                 'Options', {'Overwrite', 'Cancel'}, 'DefaultOption', 2, 'CancelOption', 2);
             if ~strcmp(sel, 'Overwrite'); logMsg('Not saved.'); return; end
         end
@@ -392,7 +400,7 @@ end
 
     function startLive()
         % Stream both cameras and redraw the Preview ~10 times/s (stopLive ends it)
-        live.saved = startEyeCamerasLive(cams, ui.cap.exposure.Value*1000); % ms -> us
+        live.saved = startEyeCamerasLive(cams, liveExposure()*1000); % ms -> us
         live.img = gobjects(1, 2); % image objects (a plain [] would store them as numbers)
         live.t0 = tic;
         live.resume_at = 0;
@@ -423,17 +431,21 @@ end
         % Timer callback: show the newest frame from each camera
         if toc(live.t0) < live.resume_at; return; end
         try
-            ax = [ui.cal.ax1 ui.cal.ax2];
-            if ~all(isgraphics(live.img)) % first frame, or Preview was showing something else
-                for cam = 1:2
-                    cla(ax(cam));
-                    live.img(cam) = imagesc(ax(cam), getsnapshot(cams(cam).vid), [0 255]);
-                    colormap(ax(cam), gray); axis(ax(cam), 'image');
-                    ax(cam).XTick = []; ax(cam).YTick = [];
+            on_record = tg.SelectedTab == tab_rec;
+            if on_record
+                ax = [ui.rec.ax1 ui.rec.ax2];
+            else
+                ax = [ui.cal.ax1 ui.cal.ax2];
+            end
+            if ~all(isgraphics(live.img)) || ~isequal([live.img.Parent], ax) % first frame, other tab, or Preview was showing something else
+                live.img = showFrames(ax, {getsnapshot(cams(1).vid), getsnapshot(cams(2).vid)});
+                if on_record
+                    ui.rec.preview_label.Text = 'Live (not recording)';
+                else
+                    setShownFiles({});
+                    ui.cal.back_to_live.Visible = 'off';
+                    ui.cal.preview_label.Text = 'Live';
                 end
-                setShownFiles({});
-                ui.cal.back_to_live.Visible = 'off';
-                ui.cal.preview_label.Text = 'Live';
             end
             for cam = 1:2
                 I = getsnapshot(cams(cam).vid);
@@ -447,10 +459,27 @@ end
         end
     end
 
+    function moveLive()
+        % Tab changed: show the live view in the new tab with that tab's exposure
+        if ~isLive(); return; end
+        live.resume_at = 0;
+        ui.cal.back_to_live.Visible = 'off';
+        applyLiveExposure();
+    end
+
+    function e = liveExposure()
+        % (ms) the exposure box of the tab showing the live view
+        if tg.SelectedTab == tab_rec
+            e = ui.rec.exposure.Value;
+        else
+            e = ui.cap.exposure.Value;
+        end
+    end
+
     function applyLiveExposure()
         if ~isLive(); return; end
         for cam = 1:2
-            setCameraExposure(cams(cam), ui.cap.exposure.Value*1000); % ms -> us
+            setCameraExposure(cams(cam), liveExposure()*1000); % ms -> us
         end
     end
 
@@ -540,11 +569,176 @@ end
         ui.cal.preview_label.Text = msg;
     end
 
+%% ===================== Record tab =====================
+    function buildRecordTab()
+        g = uigridlayout(tab_rec, [1 2], 'ColumnWidth', {480, '1x'});
+        left = uigridlayout(g, [3 1], 'RowHeight', {96, 124, '1x'}, 'Padding', [0 0 0 0]);
+
+        % 1. Session folder
+        p = uipanel(left, 'Title', '1. Session folder', 'FontWeight', 'bold');
+        pg = uigridlayout(p, [2 1], 'RowHeight', {26, 26}, 'Padding', [6 6 6 6]);
+        r = uigridlayout(pg, [1 5], 'ColumnWidth', {35, 80, 45, 70, '1x'}, 'Padding', [0 0 0 0]);
+        uilabel(r, 'Text', 'Bird:');
+        ui.rec.bird = uieditfield(r, 'text', 'Placeholder', 'e.g. HC13');
+        uilabel(r, 'Text', 'Date:', 'HorizontalAlignment', 'right');
+        ui.rec.date = uieditfield(r, 'text', 'Value', char(datetime('today', 'Format', 'yyMMdd')));
+        uibutton(r, 'Text', 'Create new folder', 'ButtonPushedFcn', @(~,~) runStep('Create session folder', @createSessionFolder, false), ...
+            'Tooltip', 'Make <behavior session root>\<bird>_<YYMMDD> (adding b, c, ... if it exists)');
+        r = uigridlayout(pg, [1 2], 'ColumnWidth', {'1x', 70}, 'Padding', [0 0 0 0]);
+        ui.rec.folder = uieditfield(r, 'text', 'Placeholder', 'Session folder, e.g. Z:\...\behavior\HC13_230525');
+        uibutton(r, 'Text', 'Browse', 'ButtonPushedFcn', @(~,~) browseRecordFolder());
+
+        % 2. Cameras
+        p = uipanel(left, 'Title', '2. Cameras (close SpinView first)', 'FontWeight', 'bold');
+        pg = uigridlayout(p, [3 1], 'RowHeight', {26, 26, 26}, 'Padding', [6 4 6 4]);
+        r = uigridlayout(pg, [1 2], 'ColumnWidth', {140, '1x'}, 'Padding', [0 0 0 0]);
+        ui.rec.connect = uibutton(r, 'Text', 'Connect cameras', 'ButtonPushedFcn', @(~,~) runStep('Connect cameras', @toggleCameras, true), ...
+            'Tooltip', 'Connect to both cameras and show them live in Preview (same connection as the Calibration tab)');
+        ui.rec.status = uilabel(r, 'Text', 'Not connected');
+        r = uigridlayout(pg, [1 2], 'ColumnWidth', {95, 80}, 'Padding', [0 0 0 0]);
+        uilabel(r, 'Text', 'Exposure (ms):');
+        ui.rec.exposure = uieditfield(r, 'numeric', 'Limits', [0.012 1000], 'Value', P.record_exposure_ms, ...
+            'HorizontalAlignment', 'left', 'ValueDisplayFormat', '%.3f', 'ValueChangedFcn', @(~,~) applyLiveExposure(), ...
+            'Tooltip', sprintf('At least 2 ms below the frame interval (%.0f ms at %g Hz)', 1000/P.eye_fps, P.eye_fps));
+        r = uigridlayout(pg, [1 2], 'ColumnWidth', {95, '1x'}, 'Padding', [0 0 0 0]);
+        uilabel(r, 'Text', 'Save as:');
+        ui.rec.format = uidropdown(r, 'Items', {'Compressed (GPU H.264, .mp4)', 'Raw (uncompressed .avi)'}, ...
+            'ItemsData', {'h264', 'raw'}, 'Tooltip', ['Compressed: ~0.13 MB/frame (~45 GB/hour for both cameras), ' ...
+            'about 1 gray level from raw; fine to write straight to Z:. ' ...
+            'Raw: lossless but 2.8 MB/frame (~1 TB/hour); record to a local SSD, not Z:.']);
+
+        % 3. Record
+        p = uipanel(left, 'Title', '3. Record (synchronized by QTM''s trigger)', 'FontWeight', 'bold');
+        pg = uigridlayout(p, [3 1], 'RowHeight', {'1x', 32, 44}, 'Padding', [6 6 6 6]);
+        helpLabel(pg, ['a. In QTM click Record, set the folder to this session folder and the file name to qtm, ' ...
+            'and start. QTM waits for the space bar.' newline ...
+            'b. Click Record here. The cameras now wait for QTM''s trigger pulses.' newline ...
+            'c. Press the space bar in QTM. Both frame counts should climb together.' newline ...
+            'd. Stop QTM first, then click Stop here.' newline ...
+            'e. In QTM export the head rigid body (6DOF) to qtm.mat in the session folder.']);
+        r = uigridlayout(pg, [1 2], 'Padding', [0 0 0 0]);
+        ui.rec.start = uibutton(r, 'Text', 'Record', 'FontWeight', 'bold', 'FontColor', [0.75 0 0], ...
+            'ButtonPushedFcn', @(~,~) runStep('Record', @startRecording, false), ...
+            'Tooltip', 'Arm both cameras on the hardware trigger and save every frame into the session folder');
+        ui.rec.stop = uibutton(r, 'Text', 'Stop', 'Enable', 'off', ...
+            'ButtonPushedFcn', @(~,~) runStep('Stop recording', @stopRecording, false), ...
+            'Tooltip', 'Stop QTM first. Finishes writing both videos and reports frame counts');
+        ui.rec.count = uilabel(pg, 'Text', '', 'FontSize', 14, 'FontWeight', 'bold', 'WordWrap', 'on');
+
+        p = uipanel(g, 'Title', 'Preview', 'FontWeight', 'bold');
+        right = uigridlayout(p, [2 2], 'RowHeight', {22, '1x'}, 'Padding', [6 6 6 6]);
+        ui.rec.preview_label = uilabel(right, 'Text', 'Connect the cameras to see them live');
+        ui.rec.preview_label.Layout.Column = [1 2];
+        ui.rec.ax1 = uiaxes(right); ui.rec.ax2 = uiaxes(right);
+        prepImageAxes([ui.rec.ax1 ui.rec.ax2]);
+    end
+
+    function createSessionFolder()
+        bird = strtrim(ui.rec.bird.Value);
+        date = strtrim(ui.rec.date.Value);
+        if isempty(regexp(bird, '^\w+$', 'once')); error('Enter the bird ID (letters and numbers)'); end
+        if isempty(regexp(date, '^\d{6}$', 'once')); error('Use a six-digit date, YYMMDD'); end
+        d = fullfile(P.data_root, [bird '_' date]);
+        suffix = 'b';
+        while isfolder(d)
+            d = fullfile(P.data_root, [bird '_' date suffix]);
+            suffix = char(suffix + 1);
+        end
+        mkdir(d);
+        ui.rec.folder.Value = d;
+        logMsg(['Created ' d]);
+    end
+
+    function browseRecordFolder()
+        start = ui.rec.folder.Value;
+        if ~isfolder(start); start = P.data_root; end
+        d = uigetdir(start, 'Select session folder to record into');
+        figure(fig);
+        if ischar(d); ui.rec.folder.Value = d; end
+    end
+
+    function startRecording()
+        if isempty(cams); error('Connect the cameras first'); end
+        d = requireFolder(ui.rec.folder.Value, 'session');
+        format = ui.rec.format.Value;
+        if strcmp(format, 'raw') && isNetworkFolder(d)
+            sel = uiconfirm(fig, ['Raw video is ~140 MB/s per camera, faster than a network drive can usually take. ' ...
+                'Record raw to a local SSD instead?'], 'Raw to network drive', ...
+                'Options', {'Record here anyway', 'Cancel'}, 'DefaultOption', 2, 'CancelOption', 2, 'Icon', 'warning');
+            if ~strcmp(sel, 'Record here anyway'); return; end
+        end
+        stopLive();
+        rec.state = startEyeRecording(cams, d, format, P, ui.rec.exposure.Value*1000); % ms -> us
+        rec.img = gobjects(1, 2);
+        rec.t0 = tic;
+        rec.timer = timer('ExecutionMode', 'fixedSpacing', 'Period', 0.5, 'BusyMode', 'drop', ...
+            'TimerFcn', @(~,~) updateRecording());
+        start(rec.timer);
+        [ui.rec.start.Enable, ui.rec.connect.Enable, ui.cap.connect.Enable] = deal('off');
+        ui.rec.stop.Enable = 'on';
+        ui.rec.preview_label.Text = 'Armed: waiting for QTM';
+        ui.rec.count.Text = 'Now press the space bar in QTM.';
+        logMsg(sprintf('Recording armed (%s) into %s. Press the space bar in QTM.', format, d));
+    end
+
+    function updateRecording()
+        % Timer callback: frame counts and the newest frames
+        try
+            n = [rec.state.cams(1).vid.FramesAcquired, rec.state.cams(2).vid.FramesAcquired];
+            if all(n == 0); return; end
+            s = [rec.state.cams(1).vid.UserData, rec.state.cams(2).vid.UserData];
+            ui.rec.count.Text = sprintf('Recording: cam1 %i, cam2 %i frames', n);
+            if any(~cellfun(@isempty, {s.error}))
+                ui.rec.count.Text = [ui.rec.count.Text ' (ERROR: ' strjoin({s.error}, '; ') ')'];
+            end
+            if isempty(s(1).last) || isempty(s(2).last); return; end
+            ax = [ui.rec.ax1 ui.rec.ax2];
+            if ~all(isgraphics(rec.img))
+                rec.img = showFrames(ax, {s.last});
+                ui.rec.preview_label.Text = 'Recording (preview updates every 0.5 s)';
+            else
+                [rec.img.CData] = s.last;
+            end
+            drawnow limitrate
+        catch err
+            ui.rec.count.Text = ['Preview error: ' err.message];
+        end
+    end
+
+    function stopRecording()
+        if isempty(rec.state); return; end
+        stop(rec.timer); delete(rec.timer);
+        ui.rec.preview_label.Text = 'Finishing the videos...'; drawnow
+        result = stopEyeRecording(rec.state);
+        rec.state = [];
+        [ui.rec.start.Enable, ui.rec.connect.Enable, ui.cap.connect.Enable] = deal('on');
+        ui.rec.stop.Enable = 'off';
+        msg = sprintf('Stopped. cam1: %i frames acquired, %i written. cam2: %i acquired, %i written.', ...
+            result.acquired(1), result.written(1), result.acquired(2), result.written(2));
+        problems = {};
+        if result.acquired(1) ~= result.acquired(2); problems{end+1} = 'the cameras got different numbers of frames'; end
+        if any(result.written ~= result.acquired); problems{end+1} = 'not every frame was written'; end
+        if any(result.acquired == 0); problems{end+1} = 'a camera got no frames (trigger cable? QTM Out 2?)'; end
+        errs = result.error(~cellfun(@isempty, result.error));
+        problems = [problems errs(:)'];
+        if isempty(problems)
+            ui.rec.count.Text = 'Done. Now export qtm.mat from QTM.';
+        else
+            msg = [msg ' PROBLEM: ' strjoin(problems, '; ')];
+            ui.rec.count.Text = ['Check: ' strjoin(problems, '; ')];
+        end
+        logMsg(msg);
+        logMsg(['Files: ' strjoin(result.file, ', ') '. Export the QTM 6DOF data to qtm.mat in the same folder.']);
+        if ~isempty(problems); uialert(fig, msg, 'Recording', 'Icon', 'warning'); end
+        ui.ses.folder.Value = fileparts(result.file{1}); % ready in the Behavior tab
+        startLive();
+    end
+
 %% ===================== Behavior tab =====================
     function buildSessionTab()
         g = uigridlayout(tab_ses, [1 2], 'ColumnWidth', {500, '1x'});
         left = uigridlayout(g, [7 1], 'RowHeight', {92, 26, 26, 185, '1x', 28, 32}, 'Padding', [0 0 0 0]);
-        helpLabel(left, ['1. Pick a behavior session folder (cam1*.avi, cam2*.avi, qtm.mat). Its calibration must be processed.' newline ...
+        helpLabel(left, ['1. Pick a behavior session folder (cam1 and cam2 videos, qtm.mat). Its calibration must be processed.' newline ...
             '2. Preview a frame and tune the tracker (yellow = pupil fit, circles = CRs). Draw a crop to speed tracking. ' ...
             'Settings are fixed once eye.mat exists.' newline ...
             '3. Label the beak (5-10 poses), track, then analyze. Tracking resumes if stopped.']);
@@ -917,6 +1111,14 @@ end
 
 %% ===================== Shared helpers =====================
     function closeGUI()
+        if ~isempty(rec.state)
+            sel = uiconfirm(fig, 'Stop the recording and close?', 'Recording', ...
+                'Options', {'Stop and close', 'Cancel'}, 'DefaultOption', 2, 'CancelOption', 2);
+            if ~strcmp(sel, 'Stop and close'); return; end
+            stop(rec.timer); delete(rec.timer);
+            stopEyeRecording(rec.state);
+            rec.state = [];
+        end
         if ~isempty(cams)
             stopLive();
             closeEyeCameras(cams);
@@ -1011,6 +1213,25 @@ for ii = 1:numel(ax)
 end
 end
 
+function img = showFrames(ax, I)
+% Draw one gray frame per axes; returns the image objects for updating CData
+img = gobjects(1, numel(ax));
+for k = 1:numel(ax)
+    cla(ax(k));
+    img(k) = imagesc(ax(k), I{k}, [0 255]);
+    colormap(ax(k), gray); axis(ax(k), 'image');
+    ax(k).XTick = []; ax(k).YTick = [];
+end
+end
+
+function tf = isNetworkFolder(d)
+% True for \\server\... paths and mapped network drives like Z:
+tf = startsWith(d, '\\');
+if ~tf && numel(d) > 1 && d(2) == ':'
+    tf = System.IO.DriveInfo(d(1)).DriveType == System.IO.DriveType.Network;
+end
+end
+
 function items = captureItems(P)
 % Calibration images the Capture panel can take. exposure_ms is in ms (NaN =
 % the camera's current setting); file is where each camera's image is saved,
@@ -1026,10 +1247,10 @@ items = struct( ...
              'lights\cam%i_light2.bmp', 'lights\cam%i_light2_checkerboard.bmp', 'axes\cam%i.bmp'}, ...
     'kind', {'checkerboard', 'led', 'mirror', 'led', 'mirror', 'axes'}, ...
     'hint', {'Hold the checkerboard still in a new position and angle for each pair (4-10 pairs).', ...
-             'Orient the mirror so light 1 is visible in both cameras. Snap the LED spot and the mirror checkerboard without moving anything.', ...
-             'Orient the mirror so light 1 is visible in both cameras. Snap the LED spot and the mirror checkerboard without moving anything.', ...
-             'Orient the mirror so light 2 is visible in both cameras. Snap the LED spot and the mirror checkerboard without moving anything.', ...
-             'Orient the mirror so light 2 is visible in both cameras. Snap the LED spot and the mirror checkerboard without moving anything.', ...
+             'Orient the mirror so light 1 is visible in both cameras. Save the LED spot and the mirror checkerboard without moving anything.', ...
+             'Orient the mirror so light 1 is visible in both cameras. Save the LED spot and the mirror checkerboard without moving anything.', ...
+             'Orient the mirror so light 2 is visible in both cameras. Save the LED spot and the mirror checkerboard without moving anything.', ...
+             'Orient the mirror so light 2 is visible in both cameras. Save the LED spot and the mirror checkerboard without moving anything.', ...
              'Also record the triangle in QTM and export axes\qtm.mat with markers labeled p0, px, py.'});
 end
 

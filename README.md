@@ -74,7 +74,7 @@ calibration\231212\
   calib.mat  axes.mat           written by calibrateCameras (delete to re-run)
 
 behavior\HC13_230525\
-  cam1*.avi  cam2*.avi          eye videos
+  cam1*.mp4|avi  cam2*.mp4|avi  eye videos
   qtm.mat                       QTM 6DOF export (variable name qtm)
   beak.mat  eye.mat  eye_triangulate.mat              written by the pipeline
   head_calibration.mat  head_calibration_template.mat  results
@@ -127,30 +127,30 @@ expects. Close SpinView first, since only one program can hold the cameras.
    Both cameras show live in Preview while you position each target; exposure changes
    apply right away.
 4. **Checkerboard.** Choose *Checkerboard pair*. Take 4–10 pairs with the checkerboard
-   in different positions and orientations, holding it still for each **Snap & save**.
+   in different positions and orientations, holding it still for each **Save images**.
    They're saved as `cam1\1.bmp`, `cam2\1.bmp`, and so on.
-5. **Lights.** Orient the mirror so that one LED is visible in both cameras at a time. For each light, snap
+5. **Lights.** Orient the mirror so that one LED is visible in both cameras at a time. For each light, save
    both items without moving anything:
    - *Light N: mirror checkerboard* (6 ms, so the checkerboard on the mirror shows)
    - *Light N: LED spot* (0.019 ms, so only the LED's reflection shows, saturated)
 6. **Axes.** Put the axes triangle in view and choose *Axes triangle*. Raise the
    exposure until the markers saturate (Preview shows the saturated percentage). If
    that's hard, light the markers directly with a lamp behind the cameras.
-   - Snap & save to get `axes\cam1.bmp` and `axes\cam2.bmp`.
+   - **Save images** to get `axes\cam1.bmp` and `axes\cam2.bmp`.
    - Record a short QTM segment as `axes\qtm.qtm`. Label markers `p0`, `px`, `py`, then
      *File > Export > MAT* as `axes\qtm.mat`. The checklist turns red if the export is
      missing or doesn't have those three labels.
 
    <img src="docs/img/axes_images.png" width="600">
 
-7. Each snap runs the same detection calibration uses (checkerboard corners, mirror
+7. Each save runs the same detection calibration uses (checkerboard corners, mirror
    checkerboard, saturated LED spot, or the three axes markers) and marks it on the image;
    a failed check says to retake. To review or retake images, pick them in **Saved images** under the preview (or click
-   their row in the checklist), then **Delete these images** and snap again. When the checklist has no red rows, click **Run calibration** and check the log (see
+   their row in the checklist), then **Delete these images** and save them again. When the checklist has no red rows, click **Run calibration** and check the log (see
    [5. Analysis](#5-analysis-matlab), step 1).
 
 While connected, the cameras run with their hardware trigger off (restored when you
-disconnect), and a snap saves each camera's newest frame, so keep the target still. The
+disconnect), and **Save images** saves each camera's newest frame, so keep the target still. The
 exposure presets are set in `src/eyetrackParams.m`. You can still capture in SpinView instead, using the file names
 above.
 
@@ -174,18 +174,43 @@ above.
 
 1. **Don't move anything after the axes calibration.**
 2. Place the bird in the arena with head markers on and food in front of the perch.
-3. In QTM click Record, set the folder and file name
+3. Close SpinView, open `eyetrackGUI`, and go to the **Record** tab. Enter the bird ID
+   and click **Create new folder** (`<behavior root>\<bird>_<YYMMDD>`, with b, c, ...
+   added if it exists). Click **Connect cameras** and check the live view and exposure
+   (default 16 ms, from `P.record_exposure_ms`).
+4. Pick **Save as**:
+   - *Compressed* (default): H.264 on the NVIDIA GPU while recording, `cam1.mp4` and
+     `cam2.mp4`. About 0.13 MB/frame (~45 GB/hour for both cameras) and about 1 gray
+     level from raw, so it can go straight to Z:. Needs ffmpeg 7.1 at `P.ffmpeg`
+     (ffmpeg 8+ needs NVIDIA driver 610 or newer).
+   - *Raw*: lossless `cam1.avi` and `cam2.avi`, 2.8 MB/frame (~1 TB/hour). Too fast for
+     Z:, so record to a local SSD and copy afterward. The GUI warns if the folder is on
+     a network drive.
+5. In QTM click Record, set the folder to the session folder and the file name to `qtm`,
+   and start. QTM waits for the space bar.
+6. Click **Record** in the GUI. The cameras switch to their hardware trigger and wait.
+7. Press the space bar in QTM. Both frame counts in the GUI should climb together.
+8. Stop QTM first, then click **Stop** in the GUI. The log reports frames acquired and
+   written per camera and flags a mismatch. Export the QTM file with the head rigid body
+   to `qtm.mat` (6DOF) in the session folder.
+
+Benchmarked on a workstation (not yet with live cameras): two streams compressed at
+~110 fps each and raw at ~87 fps each, against 50 fps needed.
+
+### Recording with SpinView instead
+
+1. In QTM click Record, set the folder and file name
    (`Z:\Hannah\eyetrack\behavior\HC13_230525\qtm`). Don't start yet.
-4. In SpinView click Record for each camera:
+2. In SpinView click Record for each camera:
    - File name `...\HC13_230525\cam1`, `...\cam2` (save raw images to the local SSD).
    - Capture 0 frames (= unlimited).
    - Video tab: frame rate 50 Hz, MJPEG quality 80 (or H264, bitrate 10,000,000).
-5. Hit Record in QTM. Don't press the space bar yet.
-6. Check exposure (≤ 1/fps, e.g. 18000 µs at 50 Hz) and gain (e.g. 10).
-7. Hit Record for both cameras in SpinView.
-8. Press the space bar in QTM. The cameras only capture frames while QTM sends TTLs,
+3. Hit Record in QTM. Don't press the space bar yet.
+4. Check exposure (≤ 1/fps, e.g. 18000 µs at 50 Hz) and gain (e.g. 10).
+5. Hit Record for both cameras in SpinView.
+6. Press the space bar in QTM. The cameras only capture frames while QTM sends TTLs,
    so this synchronizes everything.
-9. Stop QTM first, then the cameras. Export the QTM file with the head rigid body to
+7. Stop QTM first, then the cameras. Export the QTM file with the head rigid body to
    `qtm.mat` (6DOF).
 
 ## 5. Analysis (MATLAB)
@@ -200,7 +225,8 @@ eyetrackGUI
 | Tab | What it does |
 |---|---|
 | Settings | Calibration and behavior session roots, checkerboard square size, axes threshold, QTM downsample factor, beak click spacing. Defaults come from `src/eyetrackParams.m`; "Save as my defaults" stores your edits in MATLAB preferences. Also lists the toolboxes and software this computer is missing. |
-| Calibration | Pick or create a `YYMMDD` folder, connect the cameras, and snap each calibration image (saved under the right name, and checked right away with the same detection calibration uses), with a live view for positioning. A checklist marks missing images in red, including a QTM export without p0/px/py labels. **Saved images** shows any saved pair, and **Delete these images** removes it to retake. **Run calibration** runs `calibrateCameras` and prints reprojection error, light positions, and camera/light order to the log. |
+| Calibration | Pick or create a `YYMMDD` folder, connect the cameras, and save each calibration image (saved under the right name, and checked right away with the same detection calibration uses), with a live view for positioning. A checklist marks missing images in red, including a QTM export without p0/px/py labels. **Saved images** shows any saved pair, and **Delete these images** removes it to retake. **Run calibration** runs `calibrateCameras` and prints reprojection error, light positions, and camera/light order to the log. |
+| Record | Creates a session folder, shows the cameras live, and records both on QTM's trigger, compressed (GPU H.264) or raw. Walks through the QTM steps and reports frame counts at Stop. See [4. Recording](#4-recording). |
 | Behavior | Checks a behavior session's videos, `qtm.mat`, and matched calibration. Preview the tracker on any frame, edit settings per camera, draw a crop around each eye, then **Label beak → Track eyes → Analyze**. **Stop tracking** saves progress, and **Track eyes** resumes from there. |
 | Birds | Lists birds in the behavior session root and each behavior session's status. **Run selected birds** combines sessions per bird (`runEyetrackAll`), and **Summary plot** runs `plotEyetrack`. |
 

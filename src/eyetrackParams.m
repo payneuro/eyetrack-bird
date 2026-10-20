@@ -6,7 +6,7 @@ function P = eyetrackParams()
 % Paths
 P.data_root  = 'Z:\Hannah\eyetrack\behavior';    % Session folders, e.g. HC13_230525
 P.calib_root = 'Z:\Hannah\eyetrack\calibration'; % Calibration folders named YYMMDD
-P.camfilename = 'cam%i*.avi';                    % Eye video template, %i = camera number
+P.camfilename = 'cam%i*.*';                      % Eye video template, %i = camera number (.avi raw or .mp4 compressed)
 
 % Cameras (Blackfly S serial numbers)
 P.cam_serials = {'22048634', '21554508'}; % {cam1 = left, cam2 = right}
@@ -20,6 +20,9 @@ P.axes_thresh = 250;                   % intensity threshold for saturated axes 
 
 % Recording
 P.downsample_eye = 6;       % QTM frames per eye camera frame (QTM Out2 divisor)
+P.eye_fps = 50;             % Eye camera frame rate set by the QTM trigger (written into the video files)
+P.record_exposure_ms = 16.003; % (ms) eye camera exposure while recording
+P.ffmpeg = 'C:\Program Files\ffmpeg-7.1.1\bin\ffmpeg.exe'; % for compressed (GPU H.264) recording
 
 % Beak labeling
 P.beak_skip_frames = 45;    % Frames to jump between beak clicks
