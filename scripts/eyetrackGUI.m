@@ -158,9 +158,8 @@ end
 %% ===================== Calibration tab =====================
     function buildCalibrationTab()
         g = uigridlayout(tab_cal, [1 2], 'ColumnWidth', {480, '1x'});
-        left = uigridlayout(g, [5 1], 'RowHeight', {22, 96, 190, '1x', 104}, 'Padding', [0 0 0 0]);
-        uilabel(left, 'WordWrap', 'on', 'FontWeight', 'bold', 'FontColor', [0.7 0.25 0], 'Text', ...
-            'First calibrate QTM.');
+        left = uigridlayout(g, [5 1], 'RowHeight', {24, 96, 190, '1x', 104}, 'Padding', [0 0 0 0]);
+        uipanel(left, 'Title', '0. First calibrate QTM', 'FontWeight', 'bold', 'ForegroundColor', 'k'); % title only, done in QTM
 
         % 1. Folder
         p = uipanel(left, 'Title', '1. Calibration folder', 'FontWeight', 'bold');
@@ -178,7 +177,7 @@ end
             'Tooltip', 'Make <calibration root>\<YYMMDD> with empty cam1, cam2, lights, and axes subfolders to save images into');
 
         % 2. Capture (from MATLAB; the QTM part of the axes step is done in QTM)
-        p = uipanel(left, 'Title', '2. Capture images (close SpinView first; targets must be still)', 'FontWeight', 'bold');
+        p = uipanel(left, 'Title', '2. Capture still images (close SpinView first)', 'FontWeight', 'bold');
         pg = uigridlayout(p, [4 1], 'RowHeight', {26, 26, 28, '1x'}, 'Padding', [6 4 6 4]);
         r = uigridlayout(pg, [1 2], 'ColumnWidth', {140, '1x'}, 'Padding', [0 0 0 0]);
         ui.cap.connect = uibutton(r, 'Text', 'Connect cameras', 'ButtonPushedFcn', @(~,~) runStep('Connect cameras', @toggleCameras, true), ...
@@ -589,7 +588,7 @@ end
         uibutton(r, 'Text', 'Browse', 'ButtonPushedFcn', @(~,~) browseRecordFolder());
 
         % 2. Cameras
-        p = uipanel(left, 'Title', '2. Cameras (close SpinView first)', 'FontWeight', 'bold');
+        p = uipanel(left, 'Title', '2. Cameras', 'FontWeight', 'bold');
         pg = uigridlayout(p, [3 1], 'RowHeight', {26, 26, 26}, 'Padding', [6 4 6 4]);
         r = uigridlayout(pg, [1 2], 'ColumnWidth', {140, '1x'}, 'Padding', [0 0 0 0]);
         ui.rec.connect = uibutton(r, 'Text', 'Connect cameras', 'ButtonPushedFcn', @(~,~) runStep('Connect cameras', @toggleCameras, true), ...
