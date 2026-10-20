@@ -22,7 +22,7 @@ ui = struct;
 vids = struct('folder', '', 'v1', [], 'v2', [], 'N', 0);
 cams = []; % connected eye cameras (openEyeCameras), [] if not connected
 shown_files = {}; % saved images shown in the calibration Preview, for Delete
-live = struct('timer', [], 'saved', [], 'img', [], 't0', [], 'resume_at', 0); % live view; paused until toc(t0) >= resume_at
+live = struct('timer', [], 'saved', [], 'img', gobjects(1, 2), 't0', [], 'resume_at', 0); % live view; paused until toc(t0) >= resume_at
 
 %% Layout
 fig = uifigure('Name', 'eyetrack-bird', 'Position', [80 60 1280 840], ...
@@ -362,7 +362,7 @@ end
     function startLive()
         % Stream both cameras and redraw the Preview ~10 times/s (stopLive ends it)
         live.saved = startEyeCamerasLive(cams, ui.cap.exposure.Value*1000); % ms -> us
-        live.img = [];
+        live.img = gobjects(1, 2); % image objects (a plain [] would store them as numbers)
         live.t0 = tic;
         live.resume_at = 0;
         live.timer = timer('ExecutionMode', 'fixedSpacing', 'Period', 0.1, 'BusyMode', 'drop', ...
@@ -393,7 +393,7 @@ end
         if toc(live.t0) < live.resume_at; return; end
         try
             ax = [ui.cal.ax1 ui.cal.ax2];
-            if isempty(live.img) || ~all(isgraphics(live.img)) % Preview was showing something else
+            if ~all(isgraphics(live.img)) % first frame, or Preview was showing something else
                 for cam = 1:2
                     cla(ax(cam));
                     live.img(cam) = imagesc(ax(cam), getsnapshot(cams(cam).vid), [0 255]);
