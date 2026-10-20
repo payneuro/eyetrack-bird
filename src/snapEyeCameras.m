@@ -24,9 +24,7 @@ exposure_used = zeros(1, n);
 for k = 1:n
     cams(k).src.TriggerMode = 'Off';
     if ~isempty(exposure_us)
-        w = warning('off', 'all'); % "adjusted by the camera" rounding notice
-        cams(k).src.ExposureTime = exposure_us;
-        warning(w);
+        setCameraExposure(cams(k), exposure_us);
     end
     exposure_used(k) = cams(k).src.ExposureTime;
     I{k} = getsnapshot(cams(k).vid);
