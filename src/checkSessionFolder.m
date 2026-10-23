@@ -63,8 +63,9 @@ end
 
 % Pipeline outputs
 add('beak.mat (beak clicks)', isfile(fullfile(filepath_eye,'beak.mat')), beakNote(filepath_eye));
+add('bird_frames.mat', true, birdNote(filepath_eye)); % optional, so never red
 add('eye.mat (tracking)', isfile(fullfile(filepath_eye,'eye.mat')), eyeNote(filepath_eye));
-add('eye_triangulate.mat', isfile(fullfile(filepath_eye,'eye_triangulate.mat')), '3D pupil/cornea/beak');
+add('eye_triangulate.mat', isfile(fullfile(filepath_eye,'eye_triangulate.mat')), '3D pupil/cornea/beak positions');
 add('head_calibration.mat', isfile(fullfile(filepath_eye,'head_calibration.mat')), 'final head/eye geometry');
 
 T = table(item, logical(ok), note, 'VariableNames', {'item','ok','note'});
@@ -77,6 +78,17 @@ if isfile(f)
     b = load(f, 'p1');
     msg = sprintf('%i points', nnz(~isnan(b.p1(:,1))));
 end
+end
+
+function msg = birdNote(filepath_eye)
+f = fullfile(filepath_eye, 'bird_frames.mat');
+if ~isfile(f)
+    msg = 'not computed (optional)';
+    return
+end
+B = getfield(load(f), 'B');
+msg = sprintf('bird in view in %i of %i frames (%.0f%%); threshold %g of pixels > %i off', sum(B.in_view), ...
+    numel(B.in_view), 100*mean(B.in_view), B.settings.frac_thresh, B.measure.pixel_thresh);
 end
 
 function msg = eyeNote(filepath_eye)

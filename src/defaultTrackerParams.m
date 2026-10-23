@@ -22,10 +22,10 @@ p.min_edge_thresh = 6;
 p.plot_on = 1;
 p.debug_on = 0;
 p.pupil_start = [NaN NaN];
-p.cropX = [500 1400]; % optional pre-crop image
-p.cropY = [400 1000];
+p.cropX = []; % optional pre-crop image, e.g. [500 1400] (empty = full frame)
+p.cropY = []; % e.g. [400 1000]
 p.pupil_intensity = 37; % Adjust based on images if needed % 30 % 100/130
 p.iris_intensity = 65; % Adjust based on images if needed %80
-p.example_t = 7;        % (s) time of the preview frame shown before tracking
+p.example_t = 0;        % (s) time of the preview frame shown before tracking (0 = first frame)
 
 p(2) = p(1); % Same settings for the second camera

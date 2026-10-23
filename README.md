@@ -174,7 +174,7 @@ above.
 
 1. **Don't move anything after the axes calibration.**
 2. Place the bird in the arena with head markers on and food in front of the perch.
-3. Close SpinView, open `eyetrackGUI`, and go to the **Record** tab. Enter the bird ID
+3. Close SpinView, open `eyetrackGUI`, and go to the **Record behavior** tab. Enter the bird ID
    and click **Create new folder** (`<behavior root>\<bird>_<YYMMDD>`, with b, c, ...
    added if it exists). Click **Connect cameras** and check the live view and exposure
    (default 16 ms, from `P.record_exposure_ms`).
@@ -226,8 +226,8 @@ eyetrackGUI
 |---|---|
 | Settings | Calibration and behavior session roots, checkerboard square size, axes threshold, QTM downsample factor, beak click spacing. Defaults come from `src/eyetrackParams.m`; "Save as my defaults" stores your edits in MATLAB preferences. Also lists the toolboxes and software this computer is missing. |
 | Calibration | Pick or create a `YYMMDD` folder, connect the cameras, and save each calibration image (saved under the right name, and checked right away with the same detection calibration uses), with a live view for positioning. A checklist marks missing images in red, including a QTM export without p0/px/py labels. **Saved images** shows any saved pair, and **Delete these images** removes it to retake. **Run calibration** runs `calibrateCameras` and prints reprojection error, light positions, and camera/light order to the log. |
-| Record | Creates a session folder, shows the cameras live, and records both on QTM's trigger, compressed (GPU H.264) or raw. Walks through the QTM steps and reports frame counts at Stop. See [4. Recording](#4-recording). |
-| Behavior | Checks a behavior session's videos, `qtm.mat`, and matched calibration. Preview the tracker on any frame, edit settings per camera, draw a crop around each eye, then **Label beak → Track eyes → Analyze**. **Stop tracking** saves progress, and **Track eyes** resumes from there. |
+| Record behavior | Creates a session folder, shows the cameras live, and records both on QTM's trigger, compressed (GPU H.264) or raw. Walks through the QTM steps and reports frame counts at Stop. See [4. Recording](#4-recording). |
+| Analyze behavior | Checks a behavior session's videos, `qtm.mat`, and matched calibration. Step through frames (±1, ±30, or the session slider; with **Skip frames without the bird** checked, only frames with the bird) and, with **Eyetrack preview** checked, see the tracker run on each one; edit settings per camera, draw a crop around each eye, then **Label beak → Track eyes → Analyze**. **Label beak** works in the same preview: click the beak tip in cam1, then cam2; each pair is saved to `beak.mat` right away and the preview jumps ahead 30 frames (right click skips a frame without saving, Esc undoes the last click; **Beak labels** lists the labeled frames to review, and **Delete label on this frame** removes one) (`P.preview_step_frames`), skipping frames without the bird. Click **Done labeling** to finish. **Stop tracking** saves progress, and **Track eyes** resumes from there. **Skip frames without the bird** tracks only frames where the bird is in view (`findBirdFrames`: each frame is shrunk 16x and compared with the median frame; thresholds in `eyetrackParams.m`). **Find bird frames** plots which frames would be tracked. |
 | Birds | Lists birds in the behavior session root and each behavior session's status. **Run selected birds** combines sessions per bird (`runEyetrackAll`), and **Summary plot** runs `plotEyetrack`. |
 
 <img src="docs/img/gui_session.png" width="700">

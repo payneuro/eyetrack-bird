@@ -6,6 +6,11 @@ function cams = openEyeCameras(cam_serials)
 % cams(k).vid is the videoinput, cams(k).src its source (camera settings).
 % Close with closeEyeCameras(cams). SpinView must not be connected to them.
 
+old = imaqfind('Type', 'videoinput'); % left over from a GUI that closed without disconnecting
+old = old(arrayfun(@(v) strcmpi(imaqhwinfo(v, 'AdaptorName'), 'gentl'), old));
+if ~isempty(old)
+    stop(old); delete(old);
+end
 info = imaqhwinfo('gentl');
 cams = struct('vid', cell(1, 2), 'src', [], 'serial', cam_serials);
 for k = 1:numel(info.DeviceInfo)

@@ -20,10 +20,21 @@ P.axes_thresh = 250;                   % intensity threshold for saturated axes 
 
 % Recording
 P.downsample_eye = 6;       % QTM frames per eye camera frame (QTM Out2 divisor)
-P.trigger_line = 'Line3'; % camera input wired to QTM Out 2 (one frame per rising edge)
+P.trigger_line = {'Line3', 'Line3'}; % {cam1, cam2} input wired to QTM Out 2 (one frame per rising edge)
 P.eye_fps = 50;            % Eye camera frame rate set by the QTM trigger (written into the video files)
 P.record_exposure_ms = 16.003; % (ms) eye camera exposure while recording
 P.ffmpeg = 'C:\Program Files\ffmpeg-7.1.1\bin\ffmpeg.exe'; % for compressed (GPU H.264) recording
+P.keyframe_s = 2;           % (s) keyframe spacing in compressed recordings: jumping to a frame decodes from the last keyframe (5 s ffmpeg default: ~0.33 s per jump; 2 s: ~0.20 s, ~3% larger files)
+
+% Skipping frames without the bird (findBirdFrames)
+P.skip_empty_frames = true;   % default for tracking and the preview; the GUI has a checkbox
+P.bird_shrink = 16;           % frames are shrunk this many times per side (each pixel = mean of a 16x16 block) before comparing
+P.bird_pixel_thresh = 25;    % gray levels a pixel must differ from the empty-arena background
+P.bird_frac_thresh = 0.01;    % fraction of changed pixels (in either camera) that means the bird is in view (~111 of the ~11000 shrunken pixels)
+P.bird_pad_s = 0;             % (s) also track this long before and after each in-view stretch
+
+% Tracker preview (Analyze behavior tab)
+P.preview_step_frames = 30;   % frames moved by the << and >> buttons
 
 % Beak labeling
 P.beak_skip_frames = 45;    % Frames to jump between beak clicks

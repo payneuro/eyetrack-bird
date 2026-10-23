@@ -5,9 +5,9 @@ function varargout = eyetrackGUI()
 %   Settings    - paths and constants (defaults from src/eyetrackParams.m)
 %   Calibration - capture calibration images from the cameras, check and
 %                 preview them (delete to retake), run calibrateCameras
-%   Record      - live view, then record both cameras on QTM's trigger
+%   Record behavior  - live view, then record both cameras on QTM's trigger
 %                 (compressed on the GPU or raw)
-%   Behavior    - check one behavior session, tune tracker settings on a preview
+%   Analyze behavior - check one behavior session, tune tracker settings on a preview
 %                 frame, label the beak, track, and analyze it
 %   Birds       - combine all behavior sessions per bird (runEyetrackAll) and plot the summary
 %
@@ -20,8 +20,11 @@ addpath(fullfile(code_dir, 'src'));
 P = loadSettings();
 p_track = defaultTrackerParams();
 stop_requested = false;
+step_progress = NaN; % fraction done of the running step, shown in the status bar (NaN = unknown)
+frame_plots = {struct(), struct()}; % image and fit-line handles in the Analyze behavior preview, per camera
+beak = []; % beak labeling state while "Label beak" is on (p1, p2, pending cam1 click), [] when off
 ui = struct;
-vids = struct('folder', '', 'v1', [], 'v2', [], 'N', 0);
+vids = struct('folder', '', 'v1', [], 'v2', [], 'N', 0, 'in_view', []); % in_view: findBirdFrames result, loaded when skipping
 cams = []; % connected eye cameras (openEyeCameras), [] if not connected
 shown_files = {}; % saved images shown in the calibration Preview, for Delete
 live = struct('timer', [], 'saved', [], 'img', gobjects(1, 2), 't0', [], 'resume_at', 0); % live view; paused until toc(t0) >= resume_at
@@ -29,7 +32,7 @@ rec = struct('state', [], 'timer', [], 'img', gobjects(1, 2), 't0', [], 'n_prev'
 
 %% Layout
 fig = uifigure('Name', 'eyetrack-bird', 'Position', [80 60 1280 840], ...
-    'CloseRequestFcn', @(~,~) closeGUI());
+    'CloseRequestFcn', @(~,~) closeGUI(), 'DeleteFcn', @(~,~) releaseCameras());
 gmain = uigridlayout(fig, [3 1], 'RowHeight', {'1x', 150, 22}, 'Padding', [6 6 6 6]);
 tg = uitabgroup(gmain);
 log_area = uitextarea(gmain, 'Editable', 'off', 'FontName', 'Consolas', 'FontSize', 11);
@@ -37,8 +40,8 @@ status_label = uilabel(gmain, 'Text', 'Ready');
 
 tab_set = uitab(tg, 'Title', 'Settings');
 tab_cal = uitab(tg, 'Title', 'Calibration');
-tab_rec = uitab(tg, 'Title', 'Record');
-tab_ses = uitab(tg, 'Title', 'Behavior');
+tab_rec = uitab(tg, 'Title', 'Record behavior');
+tab_ses = uitab(tg, 'Title', 'Analyze behavior');
 tab_bird = uitab(tg, 'Title', 'Birds');
 
 buildSettingsTab();
@@ -47,7 +50,7 @@ buildRecordTab();
 buildSessionTab();
 buildBirdTab();
 tg.SelectedTab = tab_set;
-tg.SelectionChangedFcn = @(~,~) moveLive(); % live view follows the Calibration and Record tabs
+tg.SelectionChangedFcn = @(~,~) moveLive(); % live view follows the Calibration and Record behavior tabs
 logMsg('eyetrack-bird GUI. Settings loaded; edit them in the Settings tab.');
 if nargout > 0
     varargout{1} = fig; % no output unless asked, so calling without ; prints nothing
@@ -286,7 +289,7 @@ end
     end
 
     function toggleCameras()
-        % Shared by the Calibration and Record tabs
+        % Shared by the Calibration and Record behavior tabs
         if ~isempty(rec.state); error('Stop the recording first'); end
         if isempty(cams)
             cams = openEyeCameras(P.cam_serials);
@@ -568,7 +571,7 @@ end
         ui.cal.preview_label.Text = msg;
     end
 
-%% ===================== Record tab =====================
+%% ===================== Record behavior tab =====================
     function buildRecordTab()
         g = uigridlayout(tab_rec, [1 2], 'ColumnWidth', {480, '1x'});
         left = uigridlayout(g, [3 1], 'RowHeight', {96, 124, '1x'}, 'Padding', [0 0 0 0]);
@@ -739,16 +742,16 @@ end
         logMsg(msg);
         logMsg(['Files: ' strjoin(result.file, ', ') '. Export the QTM 6DOF data to qtm.mat in the same folder.']);
         if ~isempty(problems); uialert(fig, msg, 'Recording', 'Icon', 'warning'); end
-        ui.ses.folder.Value = fileparts(result.file{1}); % ready in the Behavior tab
+        ui.ses.folder.Value = fileparts(result.file{1}); % ready in the Analyze behavior tab
         startLive();
     end
 
-%% ===================== Behavior tab =====================
+%% ===================== Analyze behavior tab =====================
     function buildSessionTab()
         g = uigridlayout(tab_ses, [1 2], 'ColumnWidth', {500, '1x'});
-        left = uigridlayout(g, [7 1], 'RowHeight', {92, 26, 26, 185, '1x', 28, 32}, 'Padding', [0 0 0 0]);
-        helpLabel(left, ['1. Pick a behavior session folder (cam1 and cam2 videos, qtm.mat). Its calibration must be processed.' newline ...
-            '2. Preview a frame and tune the tracker (yellow = pupil fit, circles = CRs). Draw a crop to speed tracking. ' ...
+        left = uigridlayout(g, [9 1], 'RowHeight', {92, 26, 26, 26, 185, '1x', 28, 32, 26}, 'Padding', [0 0 0 0]);
+        helpLabel(left, ['1. Pick a behavior session folder (cam1 and cam2 videos, qtm.mat). Must have a calibration present from the same day (YYMMDD).' newline ...
+            '2. Step through frames with Eyetrack preview checked and tune the tracker (yellow = pupil fit, circles = CRs). Draw a crop to speed tracking. ' ...
             'Settings are fixed once eye.mat exists.' newline ...
             '3. Label the beak (5-10 poses), track, then analyze. Tracking resumes if stopped.']);
 
@@ -767,6 +770,14 @@ end
         ui.ses.delete_eye = uibutton(r, 'Text', 'Delete eye.mat (retrack)', 'ButtonPushedFcn', @(~,~) deleteEye(), ...
             'Tooltip', 'Delete eye.mat and eye_triangulate.mat (asks first) so tracking restarts from frame 1 with new settings');
 
+        r = uigridlayout(left, [1 2], 'ColumnWidth', {'1x', 150}, 'Padding', [0 0 0 0]);
+        ui.ses.skip = uicheckbox(r, 'Text', 'Skip frames without the bird', 'Value', P.skip_empty_frames, ...
+            'ValueChangedFcn', @(src,~) skipChanged(src.Value), ...
+            'Tooltip', ['Track and preview only frames where the bird is in view (background subtraction on shrunken frames, ' ...
+            'thresholds in eyetrackParams.m). Skipped frames stay NaN']);
+        uibutton(r, 'Text', 'Find bird frames', 'ButtonPushedFcn', @(~,~) runStep('Find bird frames', @showBirdFrames, true), ...
+            'Tooltip', 'Find and plot the frames with the bird in view (cached in bird_frames.mat; ~1 min the first time)');
+
         ui.ses.table = uitable(left, 'ColumnName', {'Item', 'OK', 'Note'}, 'ColumnWidth', {150, 35, 'auto'}, 'RowName', {});
 
         ui.ses.params = uitable(left, 'ColumnName', {'Tracker setting', 'cam1', 'cam2'}, ...
@@ -784,8 +795,9 @@ end
             'Tooltip', 'Show the full cam2 frame and drag a rectangle around the eye. Tracking only searches inside it (faster)');
 
         r = uigridlayout(left, [1 4], 'Padding', [0 0 0 0]);
-        uibutton(r, 'Text', '1. Label beak', 'ButtonPushedFcn', @(~,~) runStep('Beak labeling', @labelBeak, false), ...
-            'Tooltip', 'Click the beak tip in cam1 then cam2 every few frames (5-10 head poses). Adds to beak.mat if it exists');
+        ui.ses.beak = uibutton(r, 'state', 'Text', '1. Label beak', 'ValueChangedFcn', @(src,~) labelBeak(src.Value), ...
+            'Tooltip', ['On: click the beak tip in cam1, then cam2, on the frames shown (5-10 head poses), ' ...
+            'stepping with the frame controls. Each pair is saved to beak.mat right away. Right click skips a frame, Esc undoes the last click. Click again to finish']);
         uibutton(r, 'Text', '2. Track eyes', 'FontWeight', 'bold', 'ButtonPushedFcn', @(~,~) runStep('Tracking', @trackSession, false), ...
             'Tooltip', 'Track pupil and CRs in every frame, then triangulate. Resumes a stopped run; skips tracking if eye.mat is complete');
         uibutton(r, 'Text', 'Stop tracking', 'ButtonPushedFcn', @(~,~) requestStop(), ...
@@ -793,19 +805,41 @@ end
         uibutton(r, 'Text', '3. Analyze', 'ButtonPushedFcn', @(~,~) runStep('Behavior analysis', @analyzeSession, false), ...
             'Tooltip', 'Fit eye and beak positions in the head frame for this session (runEyetrackSingle) and save head_calibration.mat');
 
-        right = uigridlayout(g, [3 2], 'RowHeight', {28, '1x', 22}, 'Padding', [0 0 0 0]);
-        r = uigridlayout(right, [1 6], 'ColumnWidth', {45, 90, 100, 110, 110, '1x'}, 'Padding', [0 0 0 0]);
+        r = uigridlayout(left, [1 3], 'ColumnWidth', {80, '1x', 150}, 'Padding', [0 0 0 0]);
+        uilabel(r, 'Text', 'Beak labels:');
+        ui.ses.beak_list = uidropdown(r, 'Items', {'(Label beak to review)'}, 'Enable', 'off', ...
+            'ValueChangedFcn', @(src,~) goToFrame(src.Value, true), ...
+            'Tooltip', 'Frames with beak clicks: pick one to show it (while Label beak is on)');
+        ui.ses.beak_delete = uibutton(r, 'Text', 'Delete label on this frame', 'Enable', 'off', ...
+            'ButtonPushedFcn', @(~,~) deleteBeakLabel(), ...
+            'Tooltip', 'Remove the beak clicks on the frame shown from beak.mat (while Label beak is on)');
+
+        right = uigridlayout(g, [4 2], 'RowHeight', {28, 24, '1x', 22}, 'Padding', [0 0 0 0]);
+        r = uigridlayout(right, [1 9], 'ColumnWidth', {45, 80, 45, 38, 38, 45, 125, 80, '1x'}, 'Padding', [0 0 0 0]);
         r.Layout.Column = [1 2];
         uilabel(r, 'Text', 'Frame');
-        ui.ses.frame = uispinner(r, 'Limits', [1 Inf], 'Value', 1, 'RoundFractionalValues', 'on', 'Step', 50, ...
-            'Tooltip', 'Video frame to preview (arrows step 50 frames)');
-        uibutton(r, 'Text', 'Preview', 'ButtonPushedFcn', @(~,~) runStep('Preview', @previewTracking, false), ...
-            'Tooltip', 'Run the tracker with the current settings on this frame in both cameras');
-        uibutton(r, 'Text', 'Random frame', 'ButtonPushedFcn', @(~,~) randomPreview(), ...
-            'Tooltip', 'Preview a random frame');
+        ui.ses.frame = uispinner(r, 'Limits', [1 Inf], 'Value', 1, 'RoundFractionalValues', 'on', 'Step', 1, ...
+            'ValueDisplayFormat', '%.0f', 'HorizontalAlignment', 'left', ...
+            'ValueChangedFcn', @(src,~) goToFrame(src.Value), 'Tooltip', 'Video frame to preview');
+        n = P.preview_step_frames;
+        % {frames to move, button text, tooltip}
+        steps = {-n, sprintf('<< %i', n), sprintf('Back %i frames', n); -1, '<', 'Back 1 frame'; ...
+                  1, '>', 'Ahead 1 frame'; n, sprintf('%i >>', n), sprintf('Ahead %i frames', n)};
+        for k = 1:size(steps, 1)
+            step = steps{k, 1};
+            uibutton(r, 'Text', steps{k, 2}, 'Tooltip', steps{k, 3}, ...
+                'ButtonPushedFcn', @(~,~) goToFrame(ui.ses.frame.Value + step));
+        end
+        ui.ses.detect = uicheckbox(r, 'Text', 'Eyetrack preview', 'Value', true, ...
+            'ValueChangedFcn', @(~,~) previewFrame(), ...
+            'Tooltip', ['Run the tracker with the current settings on the frame shown, in both cameras, ' ...
+            'and again whenever the frame or a setting changes. Unchecked: just show the (cropped) frames']);
         uibutton(r, 'Text', 'Full frame', 'ButtonPushedFcn', @(~,~) runStep('Full frame', @showFullFrames, false), ...
             'Tooltip', 'Show the uncropped frames with the crop boxes in yellow');
         ui.ses.frame_label = uilabel(r, 'Text', '');
+        ui.ses.slider = uislider(right, 'Limits', [1 2], 'Value', 1, 'MajorTicks', [], 'MinorTicks', [], ...
+            'ValueChangedFcn', @(src,~) goToFrame(src.Value), 'Tooltip', 'Whole session: drag to a frame and release to preview it');
+        ui.ses.slider.Layout.Column = [1 2];
         ui.ses.ax1 = uiaxes(right); ui.ses.ax2 = uiaxes(right);
         prepImageAxes([ui.ses.ax1 ui.ses.ax2]);
         ui.ses.progress = uilabel(right, 'Text', '');
@@ -832,7 +866,14 @@ end
 
     function refreshSession()
         d = ui.ses.folder.Value;
-        vids = struct('folder', '', 'v1', [], 'v2', [], 'N', 0);
+        if ~isempty(beak) && ~strcmp(vids.folder, d) % another session: stop labeling (clicks are already saved)
+            ui.ses.detect.Value = beak.detect_was;
+            beak = [];
+            fig.WindowKeyPressFcn = '';
+            enableBeakReview(false);
+            ui.ses.beak.Value = false; ui.ses.beak.Text = '1. Label beak';
+        end
+        vids = struct('folder', '', 'v1', [], 'v2', [], 'N', 0, 'in_view', []);
         if ~isfolder(d)
             ui.ses.table.Data = table();
             return
@@ -848,9 +889,9 @@ end
         end
         if ~any(isnan(info.N_eye))
             ui.ses.frame.Limits = [1 min(info.N_eye)];
-            t_example = 7;
-            if isfield(p_track, 'example_t') && ~isempty(p_track(1).example_t); t_example = p_track(1).example_t; end
-            ui.ses.frame.Value = min(min(info.N_eye), max(1, round(t_example * info.fps_eye)));
+            ui.ses.frame.Value = 1;
+            ui.ses.slider.Limits = [1 max(2, min(info.N_eye))];
+            goToFrame(1); % show the first frame (the first with the bird when skipping)
         end
         if ~any(isnan([info.N_eye info.N_head])) && info.N_head < min(info.N_eye) * P.downsample_eye
             logMsg(sprintf('Warning: QTM has %i frames, fewer than videos x %i = %i. Check the downsample factor.', ...
@@ -886,6 +927,9 @@ end
             return
         end
         p_track(cam).(name) = v;
+        if ui.ses.detect.Value && isfolder(ui.ses.folder.Value)
+            previewFrame(); % redo detection with the new setting
+        end
     end
 
     function loadTrackerParams()
@@ -914,11 +958,13 @@ end
         d = requireFolder(ui.ses.folder.Value, 'behavior session');
         if ~strcmp(vids.folder, d)
             [v1, v2, N] = openEyeVideos(d, P.camfilename);
-            vids = struct('folder', d, 'v1', v1, 'v2', v2, 'N', N);
+            vids = struct('folder', d, 'v1', v1, 'v2', v2, 'N', N, 'in_view', []);
         end
     end
 
-    function previewTracking()
+    function showFrame()
+        % Show the current frame (cropped) in both cameras; with "Eyetrack
+        % preview" checked, also run the tracker on it and draw the fits
         openVideos();
         ii = min(vids.N, ui.ses.frame.Value);
         p = p_track;
@@ -927,27 +973,102 @@ end
         [I1, I2] = readEyeFrames(vids.v1, vids.v2, ii, p);
         ax = [ui.ses.ax1 ui.ses.ax2];
         I = {I1, I2};
+        ui.ses.frame_label.Text = sprintf('t = %.2f s of %.1f s', ii / vids.v1.FrameRate, vids.N / vids.v1.FrameRate);
+        detect = ui.ses.detect.Value;
         fit_txt = cell(1,2);
         for cam = 1:2
-            [pupil, cr, ~, resid, points] = detectPupilCR(I{cam}, p(cam).edge_thresh0, p(cam));
-            crs = squeeze(cr);
-            cla(ax(cam)); h = struct('ah', ax(cam));
-            detectPupilCRPlot(I{cam}, p(cam), h, pupil, crs, points);
-            title(ax(cam), sprintf('cam%i', cam));
-            fit_txt{cam} = sprintf('cam%i: pupil radius %.1f px, fit residual %.2f (max %.2f), %i of %i CRs', cam, ...
-                max(pupil(3:4)), resid, p(cam).ellipse_residual_thresh, nnz(~isnan(crs(1,:))), p(cam).nCRs);
+            % Reuse the image and fit lines (only their data changes, ~50x faster
+            % than redrawing) unless they're gone or the image size changed
+            h = frame_plots{cam};
+            if ~isfield(h, 'img') || ~isgraphics(h.img) || ~isequal(size(h.img.CData), size(I{cam})) ...
+                    || (detect && ~isfield(h, 'pupil_line'))
+                cla(ax(cam));
+                h = struct('ah', ax(cam));
+            end
+            if detect
+                [pupil, cr, ~, resid, points] = detectPupilCR(I{cam}, p(cam).edge_thresh0, p(cam));
+                crs = squeeze(cr);
+                h = detectPupilCRPlot(I{cam}, p(cam), h, pupil, crs, points);
+                fit_txt{cam} = sprintf('cam%i: pupil radius %.1f px, fit residual %.2f (max %.2f), %i of %i CRs', cam, ...
+                    max(pupil(3:4)), resid, p(cam).ellipse_residual_thresh, nnz(~isnan(crs(1,:))), p(cam).nCRs);
+                title(ax(cam), sprintf('cam%i', cam));
+            else
+                if ~isfield(h, 'img')
+                    h.img = imagesc(ax(cam), I{cam}); colormap(ax(cam), gray); axis(ax(cam), 'image');
+                else
+                    h.img.CData = I{cam};
+                end
+                title(ax(cam), sprintf('cam%i (detection off)', cam));
+            end
+            set(findobj(ax(cam), 'Type', 'line'), 'Visible', detect); % pupil and CR fits
+            cam_k = cam;
+            h.img.ButtonDownFcn = @(~,evt) beakClick(cam_k, evt); % only acts while labeling the beak
+            frame_plots{cam} = h;
         end
-        ui.ses.progress.Text = strjoin(fit_txt, '   |   ');
-        ui.ses.frame_label.Text = sprintf('t = %.2f s of %.1f s', ii / vids.v1.FrameRate, vids.N / vids.v1.FrameRate);
+        drawBeak();
+        ui.ses.progress.Text = strjoin(fit_txt(~cellfun(@isempty, fit_txt)), '   |   ');
+        drawnow limitrate
     end
 
-    function randomPreview()
+    function previewFrame()
+        % showFrame without runStep's busy indicator, which cost more than the
+        % frame itself (~90 ms vs ~50 ms per step); errors still go to the log
         try
-            openVideos();
-            ui.ses.frame.Value = randi(vids.N);
-        catch
+            showFrame();
+        catch err
+            logMsg(['Preview failed: ' err.message]);
         end
-        runStep('Preview', @previewTracking, false);
+    end
+
+    function goToFrame(ii, exact)
+        % Spinner, step buttons, and slider all land here: move to frame ii and
+        % preview it. With "Skip frames without the bird" checked, a frame without
+        % the bird moves on to the next one with it (searching back if none
+        % ahead), unless exact (reviewing a labeled frame).
+        if nargin < 2; exact = false; end
+        ii = round(min(max(ii, ui.ses.frame.Limits(1)), ui.ses.frame.Limits(2)));
+        if ui.ses.skip.Value && ~exact
+            if ~isfile(fullfile(ui.ses.folder.Value, 'bird_frames.mat')) % not computed yet: ~1 min, show progress
+                runStep('Find bird frames', @birdFrames, true);
+                if isempty(vids.in_view); return; end % failed (reported by runStep)
+            end
+            in_view = birdFrames();
+            if ii <= numel(in_view) && ~in_view(ii)
+                ahead = ii + find(in_view(ii:end), 1) - 1;
+                back = find(in_view(1:ii), 1, 'last');
+                if ii < ui.ses.frame.Value % moving back: prefer the bird frame before
+                    candidates = [back ahead];
+                else
+                    candidates = [ahead back];
+                end
+                if isempty(candidates); logMsg('No frames with the bird in this session.'); return; end
+                ii = candidates(1);
+            end
+        end
+        if ~isempty(beak) && ii ~= ui.ses.frame.Value
+            beak.pending = []; % a cam1 click without its cam2 click is dropped
+        end
+        ui.ses.frame.Value = ii;
+        ui.ses.slider.Value = min(max(ii, ui.ses.slider.Limits(1)), ui.ses.slider.Limits(2));
+        previewFrame();
+    end
+
+    function skipChanged(skip)
+        % Checked: move the preview off a frame without the bird
+        if skip && isfolder(ui.ses.folder.Value)
+            goToFrame(ui.ses.frame.Value);
+        end
+    end
+
+    function in_view = birdFrames()
+        % findBirdFrames for this session (computed and saved the first time, ~1 min)
+        openVideos();
+        if isempty(vids.in_view)
+            B = findBirdFrames(vids.folder, P.camfilename, P, false, @setStepProgress);
+            vids.in_view = B.in_view;
+            showStatusTable(ui.ses.table, checkSessionFolder(vids.folder, P)); % lists bird_frames.mat
+        end
+        in_view = vids.in_view;
     end
 
     function showFullFrames()
@@ -992,29 +1113,185 @@ end
         showFullFrames();
     end
 
-    function labelBeak()
-        d = requireFolder(ui.ses.folder.Value, 'behavior session');
-        resume = isfile(fullfile(d, 'beak.mat'));
-        if resume
-            sel = uiconfirm(fig, 'beak.mat exists. Add more points to it?', 'Beak', ...
-                'Options', {'Add points', 'Cancel'}, 'DefaultOption', 1, 'CancelOption', 2);
-            if ~strcmp(sel, 'Add points'); return; end
+    function labelBeak(on)
+        % Beak labeling in the preview: click the beak tip in cam1, then cam2,
+        % on the frame shown; the pair is saved to beak.mat (same format as
+        % getBeak: p1, p2 = N x 2 full-frame pixels, NaN = not clicked) and the
+        % preview jumps ahead P.preview_step_frames.
+        d = ui.ses.folder.Value;
+        if on
+            try
+                openVideos();
+            catch err
+                ui.ses.beak.Value = false; logMsg(['Label beak: ' err.message]); return
+            end
+            f = fullfile(d, 'beak.mat');
+            if isfile(f)
+                s = load(f, 'p1', 'p2');
+                beak = struct('p1', s.p1, 'p2', s.p2);
+            else
+                beak = struct('p1', NaN(vids.N, 2), 'p2', NaN(vids.N, 2));
+            end
+            beak.pending = [];
+            beak.history = []; % frames labeled this time, newest last (Esc undoes)
+            beak.detect_was = ui.ses.detect.Value;
+            ui.ses.detect.Value = false; % fits off while labeling
+            ui.ses.beak.Text = '1. Done labeling';
+            fig.WindowKeyPressFcn = @(~,evt) beakKey(evt);
+            enableBeakReview(true);
+            logMsg(sprintf(['Label beak: click the beak tip in cam1, then in cam2. Right click skips the frame, ' ...
+                'Esc undoes the last click. %i frames labeled so far. Click Done labeling to finish.'], nnz(~isnan(beak.p1(:,1)))));
+            previewFrame();
+        else
+            if isempty(beak); return; end
+            ui.ses.detect.Value = beak.detect_was;
+            n = nnz(~isnan(beak.p1(:,1)));
+            beak = [];
+            fig.WindowKeyPressFcn = '';
+            enableBeakReview(false);
+            ui.ses.beak.Text = '1. Label beak';
+            % 3D points are cached; recompute them with the new beak clicks
+            if isfile(fullfile(d, 'eye_triangulate.mat')); delete(fullfile(d, 'eye_triangulate.mat')); end
+            logMsg(sprintf('Label beak done: %i frames labeled in beak.mat.', n));
+            showStatusTable(ui.ses.table, checkSessionFolder(d, P)); % beak.mat row; stay on this frame
+            previewFrame(); % redraw with the Eyetrack preview setting restored
         end
-        logMsg('Beak: left-click the beak tip in cam1, then cam2. Right-click skips ahead, Enter finishes.');
-        getBeak(d, P.camfilename, resume, true, P.beak_skip_frames);
-        % 3D points are cached; recompute them with the new beak clicks
-        if isfile(fullfile(d, 'eye_triangulate.mat')); delete(fullfile(d, 'eye_triangulate.mat')); end
-        refreshSession();
+    end
+
+    function beakClick(cam, evt)
+        % Click on a preview image while labeling: cam1 first, then cam2.
+        % Right click skips this frame (jumps ahead without saving).
+        if isempty(beak); return; end
+        ii = ui.ses.frame.Value;
+        if (isprop(evt, 'Button') || isfield(evt, 'Button')) && evt.Button == 3
+            goToFrame(ii + P.preview_step_frames);
+            return
+        end
+        xy = evt.IntersectionPoint(1:2) + cropOffset(cam); % to full-frame pixels
+        if cam == 1
+            beak.pending = xy;
+            drawBeak();
+            ui.ses.progress.Text = sprintf('Frame %i: now click the beak tip in cam2', ii);
+        elseif isempty(beak.pending)
+            ui.ses.progress.Text = 'Click the beak tip in cam1 first';
+        else
+            beak.p1(ii,:) = beak.pending;
+            beak.p2(ii,:) = xy;
+            beak.pending = [];
+            beak.history(end+1) = ii; % for Esc = undo
+            saveBeak();
+            drawBeak();
+            ui.ses.progress.Text = sprintf('Saved beak on frame %i (%i frames labeled)', ii, nnz(~isnan(beak.p1(:,1))));
+            goToFrame(ii + P.preview_step_frames);
+        end
+    end
+
+    function beakKey(evt)
+        % Esc while labeling: undo the last click (a pending cam1 click, or
+        % the last saved pair, going back to its frame)
+        if isempty(beak) || ~strcmp(evt.Key, 'escape'); return; end
+        if ~isempty(beak.pending)
+            beak.pending = [];
+            drawBeak();
+            ui.ses.progress.Text = 'Undid the cam1 click';
+        elseif ~isempty(beak.history)
+            ii = beak.history(end);
+            beak.history(end) = [];
+            beak.p1(ii,:) = NaN; beak.p2(ii,:) = NaN;
+            saveBeak();
+            goToFrame(ii);
+            ui.ses.progress.Text = sprintf('Undid the beak on frame %i (%i frames labeled)', ii, nnz(~isnan(beak.p1(:,1))));
+        end
+    end
+
+    function deleteBeakLabel()
+        % Remove the beak clicks on the frame shown
+        if isempty(beak); return; end
+        ii = ui.ses.frame.Value;
+        if ii > size(beak.p1, 1) || isnan(beak.p1(ii,1))
+            ui.ses.progress.Text = sprintf('Frame %i has no beak label', ii); return
+        end
+        beak.p1(ii,:) = NaN; beak.p2(ii,:) = NaN;
+        beak.history(beak.history == ii) = [];
+        saveBeak();
+        drawBeak();
+        ui.ses.progress.Text = sprintf('Deleted the beak on frame %i (%i frames labeled)', ii, nnz(~isnan(beak.p1(:,1))));
+    end
+
+    function updateBeakList()
+        % Dropdown of labeled frames, selecting the one shown if it's labeled
+        labeled = find(~isnan(beak.p1(:,1)))';
+        if isempty(labeled)
+            ui.ses.beak_list.ItemsData = {}; ui.ses.beak_list.Items = {'(none yet)'};
+            return
+        end
+        ui.ses.beak_list.ItemsData = {};
+        ui.ses.beak_list.Items = arrayfun(@(k) sprintf('frame %i', k), labeled, 'UniformOutput', false);
+        ui.ses.beak_list.ItemsData = num2cell(labeled);
+        if any(labeled == ui.ses.frame.Value); ui.ses.beak_list.Value = ui.ses.frame.Value; end
+    end
+
+    function saveBeak()
+        p1 = beak.p1; p2 = beak.p2; ii = ui.ses.frame.Value; % saved below
+        save(fullfile(vids.folder, 'beak.mat'), 'p1', 'p2', 'ii');
+        updateBeakList();
+    end
+
+    function enableBeakReview(on)
+        [ui.ses.beak_list.Enable, ui.ses.beak_delete.Enable] = deal(on);
+        if on
+            updateBeakList();
+        else
+            ui.ses.beak_list.ItemsData = {}; ui.ses.beak_list.Items = {'(Label beak to review)'};
+        end
+    end
+
+    function drawBeak()
+        % Red + on the beak clicks for the frame shown (and a pending cam1 click)
+        ax = [ui.ses.ax1 ui.ses.ax2];
+        delete(findobj(ax, 'Tag', 'beak'));
+        if isempty(beak); return; end
+        ii = ui.ses.frame.Value;
+        if any(cellfun(@(k) isequal(k, ii), ui.ses.beak_list.ItemsData)); ui.ses.beak_list.Value = ii; end
+        pts = {beak.p1(ii,:), beak.p2(ii,:)};
+        if ~isempty(beak.pending); pts{1} = beak.pending; end
+        for cam = 1:2
+            xy = pts{cam} - cropOffset(cam);
+            if any(isnan(xy)); continue; end
+            line(ax(cam), xy(1), xy(2), 'Marker', '+', 'Color', 'r', 'MarkerSize', 30, 'LineWidth', 1.5, ...
+                'Tag', 'beak', 'PickableParts', 'none');
+        end
+    end
+
+    function xy = cropOffset(cam)
+        % Preview images are cropped to p_track(cam).cropX/cropY; beak.mat is in full-frame pixels
+        xy = [0 0];
+        if ~isempty(p_track(cam).cropX)
+            xy = [p_track(cam).cropX(1) p_track(cam).cropY(1)] - 1;
+        end
+    end
+
+    function showBirdFrames()
+        d = requireFolder(ui.ses.folder.Value, 'behavior session');
+        B = findBirdFrames(d, P.camfilename, P, true, @setStepProgress);
+        if strcmp(vids.folder, d); vids.in_view = B.in_view; end % used by the preview navigation
+        showStatusTable(ui.ses.table, checkSessionFolder(d, P)); % lists bird_frames.mat
     end
 
     function trackSession()
         d = requireFolder(ui.ses.folder.Value, 'behavior session');
         stop_requested = false;
         opts = struct;
+        opts.P = P;
+        opts.skip_empty_frames = ui.ses.skip.Value;
         opts.ah = [ui.ses.ax1 ui.ses.ax2];
         opts.stop_fcn = @checkStop;
-        opts.progress_fcn = @(ii, N) set(ui.ses.progress, 'Text', sprintf('Tracked %i / %i frames', ii, N));
+        opts.progress_fcn = @trackProgress;
         cla(ui.ses.ax1); cla(ui.ses.ax2);
+        if opts.skip_empty_frames
+            findBirdFrames(d, P.camfilename, P, false, @setStepProgress); % first, so its progress shows too (cached for trackEye)
+            step_progress = NaN;
+        end
         % Tracking and triangulation only; QTM is not needed until analysis
         C = calibrateCameras(findCalibrationFolder(d, P.calib_root), P);
         processEyetrack(d, P.camfilename, C, false, false, true, p_track, opts);
@@ -1024,6 +1301,15 @@ end
             logMsg(sprintf('Tracking stopped at frame %i. Track eyes resumes from there.', s.ii));
         end
         refreshSession();
+    end
+
+    function trackProgress(done, total)
+        ui.ses.progress.Text = sprintf('Tracked %i / %i frames', done, total);
+        setStepProgress(done/max(1, total));
+    end
+
+    function setStepProgress(f)
+        step_progress = f;
     end
 
     function tf = checkStop()
@@ -1048,7 +1334,7 @@ end
         left = uigridlayout(g, [5 1], 'RowHeight', {92, 26, '1x', 32, 32}, 'Padding', [0 0 0 0]);
         helpLabel(left, ['Combine all behavior sessions of a bird into one head/eye calibration (runEyetrackAll). ' ...
             'Results go to <behavior session root>\<BIRD>_all. Beak clicks are asked for in the first behavior session only; ' ...
-            'untracked behavior sessions are tracked first, with src/defaultTrackerParams.m (not the Behavior tab settings). ' ...
+            'untracked behavior sessions are tracked first, with src/defaultTrackerParams.m (not the Analyze behavior tab settings). ' ...
             'Then plot the summary across birds (plotEyetrack).']);
         uibutton(left, 'Text', 'Scan behavior session root', 'ButtonPushedFcn', @(~,~) scanBirds(), ...
             'Tooltip', 'List birds from folder names <BIRD>_<YYMMDD> in the behavior session root');
@@ -1124,35 +1410,52 @@ end
             sel = uiconfirm(fig, 'Stop the recording and close?', 'Recording', ...
                 'Options', {'Stop and close', 'Cancel'}, 'DefaultOption', 2, 'CancelOption', 2);
             if ~strcmp(sel, 'Stop and close'); return; end
-            stop(rec.timer); delete(rec.timer);
-            stopEyeRecording(rec.state);
-            rec.state = [];
         end
-        if ~isempty(cams)
-            stopLive();
-            closeEyeCameras(cams);
+        delete(fig); % releaseCameras runs as the figure's DeleteFcn
+    end
+
+    function releaseCameras()
+        % Figure deleted (closed, or deleted any other way): finish any
+        % recording and disconnect, so SpinView or a new GUI can open the cameras.
+        % Each step is attempted even if an earlier one fails.
+        steps = {@() stop(rec.timer), @() delete(rec.timer), @() stopEyeRecording(rec.state), ...
+            @() stopLive(), @() closeEyeCameras(cams)};
+        if isempty(rec.state); steps(1:3) = []; end
+        for s = steps
+            try
+                s{1}();
+            catch err
+                fprintf(2, 'eyetrackGUI closing: %s\n', err.message);
+            end
         end
-        delete(fig);
+        rec.state = []; cams = [];
     end
 
     function runStep(name, fn, capture)
         % Run fn, report errors in the log and a dialog. If capture, copy the
-        % command window output into the log.
+        % command window output into the log. The status bar only shows what's
+        % running (with moving dots and elapsed time); results go to the log,
+        % "done" only for steps over 2 s so quick clicks don't fill it.
+        t0 = tic;
+        step_progress = NaN;
+        busy = timer('ExecutionMode', 'fixedSpacing', 'Period', 0.5, 'BusyMode', 'drop', ...
+            'TimerFcn', @(src,~) showBusy(name, src.TasksExecuted, toc(t0)));
         status_label.Text = [name '...'];
         fig.Pointer = 'watch';
         drawnow
+        start(busy);
         if capture
             tmp = [tempname '.txt'];
             diary(tmp);
         end
         try
             fn();
-            status_label.Text = [name ' done'];
             ok = true;
         catch err
-            status_label.Text = [name ' failed'];
             ok = false;
         end
+        stop(busy); delete(busy);
+        if isvalid(fig); status_label.Text = 'Ready'; end
         if capture
             diary off
             if isfile(tmp)
@@ -1162,11 +1465,23 @@ end
             end
         end
         if isvalid(fig); fig.Pointer = 'arrow'; end
+        if ok && toc(t0) > 2
+            logMsg(sprintf('%s done (%.0f s)', name, toc(t0)));
+        end
         if ~ok
             logMsg(sprintf('%s failed: %s', name, err.message));
             fprintf(2, '%s\n', getReport(err, 'extended', 'hyperlinks', 'off'));
             if isvalid(fig); uialert(fig, err.message, [name ' failed']); end
         end
+    end
+
+    function showBusy(name, n, elapsed)
+        % Status bar while a step runs: moving dots, elapsed time, and % done if known
+        txt = sprintf('%s%s  %.0f s', name, repmat('.', 1, mod(n, 4)), elapsed);
+        if ~isnan(step_progress)
+            txt = sprintf('%s  (%.0f%% done)', txt, 100*step_progress);
+        end
+        status_label.Text = txt;
     end
 
     function logMsg(msg)

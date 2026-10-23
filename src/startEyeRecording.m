@@ -29,58 +29,92 @@ end
 rec = struct('cams', cams, 'format', format, 'files', {files}, 'exposure0', [cams(1).src.ExposureTime, cams(2).src.ExposureTime], ...
     'trigger', {cell(1, 2)});
 
-for k = 1:2
-    vid = cams(k).vid;
-    if ~isempty(exposure_us)
-        setCameraExposure(cams(k), exposure_us);
+trigger_lines = cellstr(P.trigger_line); % one per camera, or one for both
+try
+    for k = 1:2
+        vid = cams(k).vid;
+        vid.UserData = struct('written', 0, 'last', [], 'proc', [], 'pipe', [], 'error', '');
+        if ~isempty(exposure_us)
+            setCameraExposure(cams(k), exposure_us);
+        end
+        % Hardware trigger in the toolbox too: with 'immediate' the adaptor turns
+        % the camera's TriggerMode off at start and the camera runs free (~60 fps)
+        triggerconfig(vid, 'hardware', 'DeviceSpecific', 'DeviceSpecific');
+        setHardwareTrigger(cams(k).src, trigger_lines{min(k, end)}); % one frame per TTL
+        vid.FramesPerTrigger = 1;
+        vid.TriggerRepeat = Inf;
+        if strcmp(format, 'raw')
+            vid.LoggingMode = 'disk&memory'; % disk = the video; memory only feeds the preview
+            writer = VideoWriter(files{k}, 'Grayscale AVI');
+            writer.FrameRate = P.eye_fps;
+            vid.DiskLogger = writer;
+        else
+            vid.LoggingMode = 'memory';
+            state = vid.UserData;
+            [state.proc, state.pipe] = startEncoder(P, vid.VideoResolution, files{k});
+            vid.UserData = state;
+        end
+        vid.FramesAcquiredFcnCount = 10;
+        vid.FramesAcquiredFcn = @saveFrames;
     end
-    % Hardware trigger in the toolbox too: with 'immediate' the adaptor turns
-    % the camera's TriggerMode off at start and the camera runs free (~60 fps)
-    triggerconfig(vid, 'hardware', 'DeviceSpecific', 'DeviceSpecific');
-    setHardwareTrigger(cams(k).src, P); % one frame per TTL
-    vid.FramesPerTrigger = 1;
-    vid.TriggerRepeat = Inf;
-    state = struct('written', 0, 'last', [], 'proc', [], 'pipe', [], 'error', '');
-    if strcmp(format, 'raw')
-        vid.LoggingMode = 'disk&memory'; % disk = the video; memory only feeds the preview
-        writer = VideoWriter(files{k}, 'Grayscale AVI');
-        writer.FrameRate = P.eye_fps;
-        vid.DiskLogger = writer;
-    else
-        vid.LoggingMode = 'memory';
-        [state.proc, state.pipe] = startEncoder(P, vid.VideoResolution, files{k});
+    for k = 1:2
+        start(cams(k).vid);
     end
-    vid.UserData = state;
-    vid.FramesAcquiredFcnCount = 10;
-    vid.FramesAcquiredFcn = @saveFrames;
-end
-for k = 1:2
-    start(cams(k).vid);
-end
-for k = 1:2 % read back after start, which is when the adaptor applies its own settings
-    [rec.trigger{k}, is_on] = triggerSettings(cams(k).src);
-    if ~is_on
-        stopEyeRecording(rec);
-        cellfun(@delete, rec.files(cellfun(@isfile, rec.files))); % empty videos
-        error('cam%i trigger mode is off after starting (%s), so it would run free. Not recording.', k, rec.trigger{k});
+    for k = 1:2 % read back after start, which is when the adaptor applies its own settings
+        [rec.trigger{k}, is_on] = triggerSettings(cams(k).src);
+        if ~is_on
+            error('cam%i trigger mode is off after starting (%s), so it would run free. Not recording.', k, rec.trigger{k});
+        end
     end
+catch err
+    undoRecording(rec); % don't leave ffmpeg running or empty videos behind
+    rethrow(err);
 end
 end
 
+function undoRecording(rec)
+% Setup failed partway: stop everything started so far, delete the files,
+% and put the toolbox and exposure back. Each step is tried even if one fails.
+for k = 1:2
+    vid = rec.cams(k).vid;
+    steps = {@() stop(vid), @() closePipe(vid.UserData), @() close(vid.DiskLogger), ...
+        @() set(vid, 'FramesAcquiredFcn', ''), @() triggerconfig(vid, 'immediate'), ...
+        @() set(vid, 'FramesPerTrigger', 1, 'TriggerRepeat', 0, 'LoggingMode', 'memory', 'UserData', []), ...
+        @() flushdata(vid), @() set(rec.cams(k).src, 'ExposureTime', rec.exposure0(k))};
+    for s = steps
+        try s{1}(); catch; end
+    end
+end
+for k = 1:2
+    if isfile(rec.files{k}); delete(rec.files{k}); end
+end
+end
+
+function closePipe(state)
+if isempty(state) || isempty(state.proc); return; end
+state.pipe.Close();
+if ~state.proc.WaitForExit(5000); state.proc.Kill(); end
+end
+
 function [txt, is_on] = triggerSettings(src)
-names = intersect({'TriggerSelector', 'TriggerMode', 'TriggerSource', 'TriggerActivation', 'TriggerOverlap', 'ExposureMode'}, ...
+names = intersect({'TriggerSelector', 'TriggerMode', 'TriggerSource', 'TriggerActivation', 'TriggerOverlap', 'ExposureMode', ...
+    'LineSelector', 'LineMode'}, ...
     fieldnames(propinfo(src)), 'stable');
 txt = strjoin(cellfun(@(n) sprintf('%s=%s', n, src.(n)), names, 'UniformOutput', false), ', ');
 is_on = strcmp(src.TriggerMode, 'On');
 end
 
-function setHardwareTrigger(src, P)
+function setHardwareTrigger(src, line)
 % Set every trigger setting explicitly (don't rely on what SpinView left):
-% each rising edge on P.trigger_line starts one frame
+% each rising edge on this input line starts one frame
 info = propinfo(src);
 src.TriggerMode = 'Off'; % the camera only accepts trigger changes while off
+if isfield(info, 'LineSelector') && isfield(info, 'LineMode')
+    src.LineSelector = line;
+    src.LineMode = 'Input'; % Line2/Line3 can also be outputs
+end
 if isfield(info, 'TriggerSelector'); src.TriggerSelector = 'FrameStart'; end
-src.TriggerSource = P.trigger_line;
+src.TriggerSource = line;
 src.TriggerActivation = 'RisingEdge';
 if isfield(info, 'ExposureMode'); src.ExposureMode = 'Timed'; end
 src.TriggerMode = 'On';
@@ -91,7 +125,8 @@ function [proc, pipe] = startEncoder(P, res, file)
 proc = System.Diagnostics.Process;
 proc.StartInfo.FileName = P.ffmpeg;
 proc.StartInfo.Arguments = sprintf(['-y -loglevel error -f rawvideo -pix_fmt gray -s %ix%i -r %g -i - ' ...
-    '-c:v h264_nvenc -preset p4 -rc constqp -qp 18 -pix_fmt yuv420p "%s"'], res(1), res(2), P.eye_fps, file);
+    '-c:v h264_nvenc -preset p4 -rc constqp -qp 18 -g %i -pix_fmt yuv420p "%s"'], ...
+    res(1), res(2), P.eye_fps, round(P.keyframe_s*P.eye_fps), file);
 proc.StartInfo.UseShellExecute = false;
 proc.StartInfo.RedirectStandardInput = true;
 proc.StartInfo.CreateNoWindow = true;

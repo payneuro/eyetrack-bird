@@ -23,6 +23,7 @@ fn = fieldnames(defaults);
 for ii = 1:numel(fn)
     if ~isfield(opts, fn{ii}); opts.(fn{ii}) = defaults.(fn{ii}); end
 end
+if ~isfield(opts.track_opts, 'P'); opts.track_opts.P = P; end % skip_empty_frames and bird thresholds
 disp(filepath_eye)
 
 %% Get camera calibration -- folder must be named same date as recording, e.g. 220831

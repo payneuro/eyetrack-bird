@@ -7,13 +7,19 @@ function [E, p] = trackEye(filepath_eye, p, camfilename, opts)
 % opts (all optional):
 %   ah           - [ax1 ax2] axes to draw into (default: new figure)
 %   stop_fcn     - @() logical, checked each frame; true saves and stops
-%   progress_fcn - @(ii, N) called every 100 frames and at the end
+%   progress_fcn - @(done, total) frames to track done so far and in all
+%                  (only frames with the bird when skipping), every 100 frames
 %   show_summary - plot pupil/CR traces at the end (default true)
+%   skip_empty_frames - skip frames without the bird (findBirdFrames); they
+%                  stay NaN (default P.skip_empty_frames)
+%   P            - eyetrackParams for findBirdFrames (default eyetrackParams())
 
 if ~exist('opts','var'); opts = struct; end
 if ~isfield(opts,'stop_fcn'); opts.stop_fcn = @() false; end
 if ~isfield(opts,'progress_fcn'); opts.progress_fcn = @(ii,N) []; end
 if ~isfield(opts,'show_summary'); opts.show_summary = true; end
+if ~isfield(opts,'P'); opts.P = eyetrackParams(); end
+if ~isfield(opts,'skip_empty_frames'); opts.skip_empty_frames = opts.P.skip_empty_frames; end
 disp(filepath_eye)
 
 % Load the high res video
@@ -37,11 +43,23 @@ else
     set(plot_handles2.ah,'Pos',apos+[0.5 0 0 0]); drawnow
 end
 
+%% Frames to track
+in_view = true(N_eye, 1);
+if opts.skip_empty_frames
+    B = findBirdFrames(filepath_eye, camfilename, opts.P);
+    n = min(N_eye, numel(B.in_view));
+    in_view(1:n) = B.in_view(1:n); % kept in bird_frames.mat, not E (E's fields all get filtered later)
+end
+n_done = cumsum(in_view); % frames to track up to each frame, for progress_fcn
+
 %% Plot an example frame to get pupil and iris thresholds
 if ~isfield(p,'example_t') || isempty(p(1).example_t)
-    p(1).example_t = 7;
+    p(1).example_t = 0;
 end
 ii_example = min(N_eye, max(1, round(p(1).example_t*frameRate)));
+if ~in_view(ii_example) && any(in_view(ii_example:end)) % first frame with the bird from there
+    ii_example = ii_example - 1 + find(in_view(ii_example:end), 1);
+end
 [I1, I2] = readEyeFrames(vid1, vid2, ii_example, p);
 
 % Run pupil and CR detection in each image
@@ -90,6 +108,15 @@ for ii = ii_start:N_eye
         return
     end
 
+    if ~in_view(ii) % bird out of view: leave NaN, search the whole frame when it's back
+        p(1).pupil_start = [NaN NaN];
+        p(2).pupil_start = [NaN NaN];
+        edge_thresh1 = p(1).edge_thresh0;
+        edge_thresh2 = p(2).edge_thresh0;
+        if mod(ii, 100)==0; opts.progress_fcn(n_done(ii), n_done(end)); end
+        continue
+    end
+
     % Load image
     [I1, I2] = readEyeFrames(vid1, vid2, ii, p);
 
@@ -121,12 +148,12 @@ for ii = ii_start:N_eye
 
     if mod(ii, 100)==0
         fprintf('%i/%i\n', ii, N_eye)
-        opts.progress_fcn(ii, N_eye);
+        opts.progress_fcn(n_done(ii), n_done(end));
         save(fullfile(filepath_eye,'eye.mat'),'E','p','ii')
     end
 end
 save(fullfile(filepath_eye,'eye.mat'),'E','p')
-opts.progress_fcn(N_eye, N_eye);
+opts.progress_fcn(n_done(end), n_done(end));
 
 
 %% Plot results
