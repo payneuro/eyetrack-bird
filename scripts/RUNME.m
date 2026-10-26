@@ -85,12 +85,12 @@ downsample_eyes(startsWith(dir_roots,'HC12')) = 5;
 % NOTE: RBY47_221013 is the same bird as HC06_221013 before surgery, could
 % use instead if needed
 
+Ht = table; stats = table;
 for ii = 1:length(dir_roots)
-    runEyetrackAll(fullfile(data_root, dir_roots{ii}), downsample_eyes(ii), ploton, P)
+    [~, Ht_bird, stats_bird] = runEyetrackAll(fullfile(data_root, dir_roots{ii}), downsample_eyes(ii), ploton, P);
+    Ht = [Ht; Ht_bird]; stats = [stats; stats_bird]; %#ok<AGROW>
 end
 
-
-
 %% Plot results & give stats for all birds
-plotEyetrack(data_root, dir_roots)
+plotEyetrack(Ht, stats);
 

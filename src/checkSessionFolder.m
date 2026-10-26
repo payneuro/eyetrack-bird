@@ -63,7 +63,7 @@ end
 
 % Pipeline outputs
 add('beak.mat (beak clicks)', isfile(fullfile(filepath_eye,'beak.mat')), beakNote(filepath_eye));
-add('bird_frames.mat', true, birdNote(filepath_eye)); % optional, so never red
+add('frames_in_view.mat', true, birdNote(filepath_eye)); % optional, so never red
 add('eye.mat (tracking)', isfile(fullfile(filepath_eye,'eye.mat')), eyeNote(filepath_eye));
 add('eye_triangulate.mat', isfile(fullfile(filepath_eye,'eye_triangulate.mat')), '3D pupil/cornea/beak positions');
 add('head_calibration.mat', isfile(fullfile(filepath_eye,'head_calibration.mat')), 'final head/eye geometry');
@@ -81,7 +81,7 @@ end
 end
 
 function msg = birdNote(filepath_eye)
-f = fullfile(filepath_eye, 'bird_frames.mat');
+f = fullfile(filepath_eye, 'frames_in_view.mat');
 if ~isfile(f)
     msg = 'not computed (optional)';
     return

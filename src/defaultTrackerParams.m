@@ -1,6 +1,6 @@
 function p = defaultTrackerParams()
 % p = defaultTrackerParams()
-% Pupil / corneal reflection tracker settings, one struct element per camera.
+% Pupil / corneal reflection tracker parameters, one struct element per camera.
 % See detectPupilCR for how each field is used.
 
 p = [];

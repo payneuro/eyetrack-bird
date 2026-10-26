@@ -10,6 +10,14 @@ P.camfilename = 'cam%i*.*';                      % Eye video template, %i = came
 
 % Cameras (Blackfly S serial numbers)
 P.cam_serials = {'22048634', '21554508'}; % {cam1 = left, cam2 = right}
+% Set on both cameras when the GUI connects (GenICam feature names, as in SpinView),
+% so SpinView isn't needed. Exposure and the trigger are set by the GUI itself.
+P.camera_settings = struct( ...
+    'ExposureAuto', 'Off', ...
+    'GainAuto', 'Off', ...
+    'Gain', 3, ...                 % (dB)
+    'GainConversion', 'HCG', ...   % high conversion gain (Analog Control)
+    'TriggerDelay', 100);          % (us) >= the QTM exposure (50-80 us), so QTM strobes don't show in the eye
 
 % Calibration
 P.square_size = 4;                     % (mm) checkerboard square size
@@ -17,6 +25,7 @@ P.mirror_thickness = -0.1;             % (mm) checkerboard sticker on the front-
 P.exposure_led_spot_ms = 0.019;        % (ms) LED spot images: only the reflection shows
 P.exposure_mirror_checkerboard_ms = 6; % (ms) mirror checkerboard images
 P.axes_thresh = 250;                   % intensity threshold for saturated axes markers (after smoothing)
+P.axes_leg_tol = 1;                    % (mm) camera and QTM axes-triangle legs must agree this closely (past calibrations: < 0.3 mm)
 
 % Recording
 P.downsample_eye = 6;       % QTM frames per eye camera frame (QTM Out2 divisor)
@@ -34,7 +43,5 @@ P.bird_frac_thresh = 0.01;    % fraction of changed pixels (in either camera) th
 P.bird_pad_s = 0;             % (s) also track this long before and after each in-view stretch
 
 % Tracker preview (Analyze behavior tab)
-P.preview_step_frames = 30;   % frames moved by the << and >> buttons
+P.preview_step_frames = 30;   % frames moved by the << and >> buttons, and between beak clicks
 
-% Beak labeling
-P.beak_skip_frames = 45;    % Frames to jump between beak clicks

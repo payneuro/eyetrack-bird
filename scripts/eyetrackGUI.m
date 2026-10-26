@@ -7,7 +7,7 @@ function varargout = eyetrackGUI()
 %                 preview them (delete to retake), run calibrateCameras
 %   Record behavior  - live view, then record both cameras on QTM's trigger
 %                 (compressed on the GPU or raw)
-%   Analyze behavior - check one behavior session, tune tracker settings on a preview
+%   Analyze behavior - check one behavior session, tune eye tracking parameters on a preview
 %                 frame, label the beak, track, and analyze it
 %   Birds       - combine all behavior sessions per bird (runEyetrackAll) and plot the summary
 %
@@ -51,25 +51,23 @@ buildSessionTab();
 buildBirdTab();
 tg.SelectedTab = tab_set;
 tg.SelectionChangedFcn = @(~,~) moveLive(); % live view follows the Calibration and Record behavior tabs
-logMsg('eyetrack-bird GUI. Settings loaded; edit them in the Settings tab.');
+logMsg('eyetrack-bird GUI. Settings loaded.');
 if nargout > 0
     varargout{1} = fig; % no output unless asked, so calling without ; prints nothing
 end
 
 %% ===================== Settings tab =====================
     function buildSettingsTab()
-        g = uigridlayout(tab_set, [11 4], 'ColumnWidth', {190, 90, '1x', 90}, ...
-            'RowHeight', [repmat({26}, 1, 10) {'1x'}]);
+        g = uigridlayout(tab_set, [6 4], 'ColumnWidth', {190, 90, '1x', 90}, ...
+            'RowHeight', [repmat({26}, 1, 5) {'1x'}]);
         tip = ['Behavior sessions find their calibration by the six digits after the last underscore, ' ...
             'e.g. HC13_230525b -> <calibration root>\230525.'];
         ui.set.calib_root = pathRow(g, 1, 'Calibration root', 'calib_root', tip);
         ui.set.data_root = pathRow(g, 2, 'Behavior session root', 'data_root', tip);
         ui.set.square_size = numRow(g, 3, 'Checkerboard square (mm)', 'square_size');
-        ui.set.axes_thresh = numRow(g, 4, 'Axes marker threshold', 'axes_thresh');
-        ui.set.downsample_eye = numRow(g, 5, 'QTM frames per video frame', 'downsample_eye');
-        ui.set.beak_skip_frames = numRow(g, 6, 'Beak click spacing (frames)', 'beak_skip_frames');
+        ui.set.downsample_eye = numRow(g, 4, 'QTM frames per video frame', 'downsample_eye');
         r = uigridlayout(g, [1 3], 'ColumnWidth', {170, 200, '1x'}, 'Padding', [0 0 0 0]);
-        r.Layout.Row = 10; r.Layout.Column = [1 4];
+        r.Layout.Row = 5; r.Layout.Column = [1 4];
         uibutton(r, 'Text', 'Save as my defaults', 'ButtonPushedFcn', @(~,~) saveSettings(), ...
             'Tooltip', ['Save these values to your MATLAB preferences (setpref ''eyetrackGUI''). ' ...
             'The GUI starts with them next time instead of src/eyetrackParams.m.']);
@@ -77,15 +75,15 @@ end
             'Tooltip', ['Reload the values in src/eyetrackParams.m and delete your saved GUI defaults, ' ...
             'so the GUI starts from eyetrackParams.m again.']);
 
-        p = uipanel(g, 'Title', 'Installed software (red = missing on this computer; Add-Ons need your MathWorks license)', 'FontWeight', 'bold');
-        p.Layout.Row = 11; p.Layout.Column = [1 4];
+        p = uipanel(g, 'Title', 'Installed software (red = missing on this computer)', 'FontWeight', 'bold');
+        p.Layout.Row = 6; p.Layout.Column = [1 4];
         pg = uigridlayout(p, [2 1], 'RowHeight', {'1x', 26}, 'Padding', [6 6 6 6]);
         ui.req.table = uitable(pg, 'RowName', {}, ...
             'ColumnName', {'Software', 'OK', 'Needed for', 'How to install'}, ...
             'ColumnWidth', {240, 35, 260, 'auto'}, 'CellSelectionCallback', @showRequirement);
         r = uigridlayout(pg, [1 3], 'ColumnWidth', {120, '1x', 160}, 'Padding', [0 0 0 0]);
         uibutton(r, 'Text', 'Recheck', 'ButtonPushedFcn', @(~,~) refreshRequirements(), ...
-            'Tooltip', 'Check again after installing something (restart MATLAB first for toolboxes and PATH changes)');
+            'Tooltip', 'Check again after installing something (restart MATLAB first for toolboxes and PATH changes) (checkRequirements)');
         ui.req.detail = uilabel(r, 'Text', 'Click a row to show its full install instructions here', 'WordWrap', 'on');
         ui.req.link = uihyperlink(r, 'Text', 'Open download page', 'Visible', 'off');
         refreshRequirements();
@@ -172,7 +170,7 @@ end
             'ValueChangedFcn', @(~,~) refreshCalibration());
         uibutton(r, 'Text', 'Browse', 'ButtonPushedFcn', @(~,~) browseCalibration());
         uibutton(r, 'Text', 'Refresh', 'ButtonPushedFcn', @(~,~) refreshCalibration(), ...
-            'Tooltip', 'Re-check this folder''s files and update the list in 3 (after you add or delete images)');
+            'Tooltip', 'Re-check this folder''s files and update the list in 3 (after you add or delete images) (checkCalibrationFolder)');
         r = uigridlayout(pg, [1 3], 'ColumnWidth', {110, 80, '1x'}, 'Padding', [0 0 0 0]);
         uilabel(r, 'Text', 'or new (YYMMDD):');
         ui.cal.newdate = uieditfield(r, 'text', 'Value', char(datetime('today', 'Format', 'yyMMdd')));
@@ -180,12 +178,12 @@ end
             'Tooltip', 'Make <calibration root>\<YYMMDD> with empty cam1, cam2, lights, and axes subfolders to save images into');
 
         % 2. Capture (from MATLAB; the QTM part of the axes step is done in QTM)
-        p = uipanel(left, 'Title', '2. Capture still images (close SpinView first)', 'FontWeight', 'bold');
+        p = uipanel(left, 'Title', '2. Capture still images', 'FontWeight', 'bold');
         pg = uigridlayout(p, [4 1], 'RowHeight', {26, 26, 28, '1x'}, 'Padding', [6 4 6 4]);
         r = uigridlayout(pg, [1 2], 'ColumnWidth', {140, '1x'}, 'Padding', [0 0 0 0]);
         ui.cap.connect = uibutton(r, 'Text', 'Connect cameras', 'ButtonPushedFcn', @(~,~) runStep('Connect cameras', @toggleCameras, true), ...
             'Tooltip', ['Connect to both Blackfly cameras (matched to cam1/cam2 by serial number in eyetrackParams.m) ' ...
-            'and show them live in Preview']);
+            'and show them live in Preview (openEyeCameras, startEyeCamerasLive)']);
         ui.cap.status = uilabel(r, 'Text', 'Not connected');
         r = uigridlayout(pg, [1 4], 'ColumnWidth', {40, '1x', 95, 70}, 'Padding', [0 0 0 0]);
         uilabel(r, 'Text', 'What:');
@@ -196,7 +194,7 @@ end
             'ValueChangedFcn', @(~,~) applyLiveExposure(), ...
             'Tooltip', 'Applied to both cameras for this capture only; their own exposure is restored afterward');
         uibutton(pg, 'Text', 'Save images', 'FontWeight', 'bold', 'ButtonPushedFcn', @(~,~) runStep('Save images', @captureStill, true), ...
-            'Tooltip', 'Save the current live frame from each camera under the file names this item needs');
+            'Tooltip', 'Save the current live frame from each camera under the file names this item needs, and check them (detectCheckerboardPoints, detectLedSpot, detectMirrorCheckerboard, detectAxesMarkers)');
         items = captureItems(P);
         ui.cap.hint = uilabel(pg, 'WordWrap', 'on', 'VerticalAlignment', 'top', 'FontColor', [0.25 0.25 0.25], ...
             'Text', items(1).hint); % setCaptureExposure updates it when the item changes
@@ -214,9 +212,9 @@ end
             'ButtonPushedFcn', @(~,~) runStep('Calibration', @runCalibration, true), ...
             'Tooltip', ['Process the images in this folder and overwrite calib.mat and axes.mat. ' ...
             'Check the log: reprojection error < 1 px, light 1 left of light 2, matching QTM and camera axis lengths. ' ...
-            'Behavior sessions already triangulated with the old calibration keep their eye_triangulate.mat until it is deleted.']);
+            'Behavior sessions are re-triangulated with the new calibration the next time they are tracked or analyzed. (calibrateCameras)']);
         uibutton(pg, 'Text', 'Show saved results', 'ButtonPushedFcn', @(~,~) runStep('Calibration summary', @summarizeCalibration, true), ...
-            'Tooltip', 'Print the saved calib.mat/axes.mat summary to the log without recomputing');
+            'Tooltip', 'Print the saved calib.mat/axes.mat summary to the log without recomputing (checkCameraOrder)');
 
         % Preview (for step 3)
         p = uipanel(g, 'Title', 'Preview', 'FontWeight', 'bold');
@@ -293,6 +291,7 @@ end
         if ~isempty(rec.state); error('Stop the recording first'); end
         if isempty(cams)
             cams = openEyeCameras(P.cam_serials);
+            logMsg(applyCameraSettings(cams, P.camera_settings));
             [ui.cap.connect.Text, ui.rec.connect.Text] = deal('Disconnect');
             [ui.cap.status.Text, ui.rec.status.Text] = deal(sprintf('Connected: cam1 %s, cam2 %s (exposure %.3f ms)', ...
                 cams(1).serial, cams(2).serial, cams(1).src.ExposureTime/1000));
@@ -362,7 +361,7 @@ end
     end
 
     function swapped = checkLightOrder(d, C)
-        % Light 1 must be the LED on the left in the cameras' view (the tracker
+        % Light 1 must be the LED on the left in the cameras' view (eye tracking
         % pairs corneal reflections left to right with lights 1 and 2). Once all
         % light images exist, locate the LEDs (quietly, using C if given) and
         % offer to swap the light 1 and 2 files if they're reversed.
@@ -387,7 +386,7 @@ end
             return
         end
         sel = uiconfirm(fig, ['Light 1 is on the RIGHT in the cameras'' view, but should be on the left ' ...
-            '(the tracker pairs corneal reflections left to right with light 1 and light 2). ' ...
+            '(eye tracking pairs corneal reflections left to right with light 1 and light 2). ' ...
             'Were the light 1 and light 2 images taken the wrong way round?'], 'Light order', ...
             'Options', {'Swap light 1 and 2 files', 'Keep as is'}, 'DefaultOption', 2, 'CancelOption', 2, 'Icon', 'warning');
         if strcmp(sel, 'Swap light 1 and 2 files')
@@ -595,7 +594,7 @@ end
         pg = uigridlayout(p, [3 1], 'RowHeight', {26, 26, 26}, 'Padding', [6 4 6 4]);
         r = uigridlayout(pg, [1 2], 'ColumnWidth', {140, '1x'}, 'Padding', [0 0 0 0]);
         ui.rec.connect = uibutton(r, 'Text', 'Connect cameras', 'ButtonPushedFcn', @(~,~) runStep('Connect cameras', @toggleCameras, true), ...
-            'Tooltip', 'Connect to both cameras and show them live in Preview (same connection as the Calibration tab)');
+            'Tooltip', 'Connect to both cameras and show them live in Preview (same connection as the Calibration tab) (openEyeCameras, startEyeCamerasLive)');
         ui.rec.status = uilabel(r, 'Text', 'Not connected');
         r = uigridlayout(pg, [1 2], 'ColumnWidth', {95, 80}, 'Padding', [0 0 0 0]);
         uilabel(r, 'Text', 'Exposure (ms):');
@@ -621,10 +620,10 @@ end
         r = uigridlayout(pg, [1 2], 'Padding', [0 0 0 0]);
         ui.rec.start = uibutton(r, 'Text', 'Record', 'FontWeight', 'bold', 'FontColor', [0.75 0 0], ...
             'ButtonPushedFcn', @(~,~) runStep('Record', @startRecording, false), ...
-            'Tooltip', 'Arm both cameras on the hardware trigger and save every frame into the session folder');
+            'Tooltip', 'Arm both cameras on the hardware trigger and save every frame into the session folder (startEyeRecording)');
         ui.rec.stop = uibutton(r, 'Text', 'Stop', 'Enable', 'off', ...
             'ButtonPushedFcn', @(~,~) runStep('Stop recording', @stopRecording, false), ...
-            'Tooltip', 'Stop QTM first. Finishes writing both videos and reports frame counts');
+            'Tooltip', 'Stop QTM first. Finishes writing both videos and reports frame counts (stopEyeRecording)');
         ui.rec.count = uilabel(pg, 'Text', '', 'FontSize', 14, 'FontWeight', 'bold', 'WordWrap', 'on');
 
         p = uipanel(g, 'Title', 'Preview', 'FontWeight', 'bold');
@@ -751,8 +750,7 @@ end
         g = uigridlayout(tab_ses, [1 2], 'ColumnWidth', {500, '1x'});
         left = uigridlayout(g, [9 1], 'RowHeight', {92, 26, 26, 26, 185, '1x', 28, 32, 26}, 'Padding', [0 0 0 0]);
         helpLabel(left, ['1. Pick a behavior session folder (cam1 and cam2 videos, qtm.mat). Must have a calibration present from the same day (YYMMDD).' newline ...
-            '2. Step through frames with Eyetrack preview checked and tune the tracker (yellow = pupil fit, circles = CRs). Draw a crop to speed tracking. ' ...
-            'Settings are fixed once eye.mat exists.' newline ...
+            '2. Step through frames and adjust params if needed.' newline ...
             '3. Label the beak (5-10 poses), track, then analyze. Tracking resumes if stopped.']);
 
         r = uigridlayout(left, [1 3], 'ColumnWidth', {'1x', 70, 70}, 'Padding', [0 0 0 0]);
@@ -760,7 +758,7 @@ end
             'ValueChangedFcn', @(~,~) refreshSession());
         uibutton(r, 'Text', 'Browse', 'ButtonPushedFcn', @(~,~) browseSession());
         uibutton(r, 'Text', 'Refresh', 'ButtonPushedFcn', @(~,~) refreshSession(), ...
-            'Tooltip', 'Re-check this behavior session''s files and pipeline outputs, and reload its tracker settings from eye.mat');
+            'Tooltip', 'Re-check this behavior session''s files and pipeline outputs, and reload its eye tracking parameters from eye.mat (checkSessionFolder)');
 
         r = uigridlayout(left, [1 4], 'ColumnWidth', {170, 60, '1x', 150}, 'Padding', [0 0 0 0]);
         uilabel(r, 'Text', 'QTM frames per video frame:');
@@ -768,42 +766,41 @@ end
             'ValueChangedFcn', @(src,~) setDownsample(src.Value));
         uilabel(r, 'Text', '');
         ui.ses.delete_eye = uibutton(r, 'Text', 'Delete eye.mat (retrack)', 'ButtonPushedFcn', @(~,~) deleteEye(), ...
-            'Tooltip', 'Delete eye.mat and eye_triangulate.mat (asks first) so tracking restarts from frame 1 with new settings');
+            'Tooltip', 'Delete eye.mat and eye_triangulate.mat (asks first) so tracking restarts from frame 1 with new parameters');
 
-        r = uigridlayout(left, [1 2], 'ColumnWidth', {'1x', 150}, 'Padding', [0 0 0 0]);
+        r = uigridlayout(left, [1 1], 'Padding', [0 0 0 0]);
         ui.ses.skip = uicheckbox(r, 'Text', 'Skip frames without the bird', 'Value', P.skip_empty_frames, ...
             'ValueChangedFcn', @(src,~) skipChanged(src.Value), ...
             'Tooltip', ['Track and preview only frames where the bird is in view (background subtraction on shrunken frames, ' ...
-            'thresholds in eyetrackParams.m). Skipped frames stay NaN']);
-        uibutton(r, 'Text', 'Find bird frames', 'ButtonPushedFcn', @(~,~) runStep('Find bird frames', @showBirdFrames, true), ...
-            'Tooltip', 'Find and plot the frames with the bird in view (cached in bird_frames.mat; ~1 min the first time)');
+            'thresholds in eyetrackParams.m). Skipped frames stay NaN (findBirdFrames)']);
 
         ui.ses.table = uitable(left, 'ColumnName', {'Item', 'OK', 'Note'}, 'ColumnWidth', {150, 35, 'auto'}, 'RowName', {});
 
-        ui.ses.params = uitable(left, 'ColumnName', {'Tracker setting', 'cam1', 'cam2'}, ...
+        ui.ses.params = uitable(left, 'ColumnName', {'Params', 'cam1', 'cam2'}, ...
             'ColumnEditable', [false true true], 'ColumnWidth', {170, 'auto', 'auto'}, 'RowName', {}, ...
             'CellEditCallback', @(~,evt) editTrackerParam(evt));
 
-        r = uigridlayout(left, [1 4], 'Padding', [0 0 0 0]);
-        uibutton(r, 'Text', 'Defaults', 'ButtonPushedFcn', @(~,~) setTrackerParams(defaultTrackerParams(), 'defaults'), ...
-            'Tooltip', 'Reset the tracker settings table to src/defaultTrackerParams.m');
-        uibutton(r, 'Text', 'Load from eye.mat...', 'ButtonPushedFcn', @(~,~) loadTrackerParams(), ...
-            'Tooltip', 'Copy tracker settings from another behavior session''s eye.mat');
-        uibutton(r, 'Text', 'Draw crop cam1', 'ButtonPushedFcn', @(~,~) drawCrop(1), ...
-            'Tooltip', 'Show the full cam1 frame and drag a rectangle around the eye. Tracking only searches inside it (faster)');
-        uibutton(r, 'Text', 'Draw crop cam2', 'ButtonPushedFcn', @(~,~) drawCrop(2), ...
-            'Tooltip', 'Show the full cam2 frame and drag a rectangle around the eye. Tracking only searches inside it (faster)');
+        r = uigridlayout(left, [1 3], 'Padding', [0 0 0 0]);
+        uibutton(r, 'Text', 'Default params', 'ButtonPushedFcn', @(~,~) replaceParams(defaultTrackerParams()), ...
+            'Tooltip', 'Reset the params table to src/defaultTrackerParams.m (defaultTrackerParams)');
+        uibutton(r, 'Text', 'Load params', 'ButtonPushedFcn', @(~,~) loadTrackerParams(), ...
+            'Tooltip', 'Copy params from another behavior session''s eye.mat');
+        ui.ses.offset = uicheckbox(r, 'Text', 'Correct offset', 'Value', false, ...
+            'Tooltip', ['For 3. Analyze: the camera-QTM check figure shows each eye''s position in the head vs head yaw, ' ...
+            'which should be flat. Sloped lines mean the eye cameras moved relative to QTM after the axes calibration. ' ...
+            'Checked: fit a horizontal shift + rotation about vertical of the eye-camera points, apply it before ' ...
+            'the analysis, and save it in head_calibration.mat (camera_offset). The check figure then shows before (grey) ' ...
+            'and after (runEyetrackSingle with correct_offset = true, fitCameraOffset, plotYawCheck)']);
 
-        r = uigridlayout(left, [1 4], 'Padding', [0 0 0 0]);
+        r = uigridlayout(left, [1 3], 'Padding', [0 0 0 0]);
         ui.ses.beak = uibutton(r, 'state', 'Text', '1. Label beak', 'ValueChangedFcn', @(src,~) labelBeak(src.Value), ...
             'Tooltip', ['On: click the beak tip in cam1, then cam2, on the frames shown (5-10 head poses), ' ...
             'stepping with the frame controls. Each pair is saved to beak.mat right away. Right click skips a frame, Esc undoes the last click. Click again to finish']);
-        uibutton(r, 'Text', '2. Track eyes', 'FontWeight', 'bold', 'ButtonPushedFcn', @(~,~) runStep('Tracking', @trackSession, false), ...
-            'Tooltip', 'Track pupil and CRs in every frame, then triangulate. Resumes a stopped run; skips tracking if eye.mat is complete');
-        uibutton(r, 'Text', 'Stop tracking', 'ButtonPushedFcn', @(~,~) requestStop(), ...
-            'Tooltip', 'Save progress to eye.mat and stop after the current frame. Track eyes resumes from there');
-        uibutton(r, 'Text', '3. Analyze', 'ButtonPushedFcn', @(~,~) runStep('Behavior analysis', @analyzeSession, false), ...
-            'Tooltip', 'Fit eye and beak positions in the head frame for this session (runEyetrackSingle) and save head_calibration.mat');
+        ui.ses.track = uibutton(r, 'Text', '2. Track eyes', 'FontWeight', 'bold', 'ButtonPushedFcn', @(~,~) trackOrStop(), ...
+            'Tooltip', ['Track pupil and CRs, then triangulate. While tracking, the button stops it: progress is saved ' ...
+            'to eye.mat and Track eyes resumes from there. Skips tracking if eye.mat is complete (processEyetrack, trackEye)']);
+        uibutton(r, 'Text', '3. Analyze', 'ButtonPushedFcn', @(~,~) runStep('Behavior analysis', @analyzeSession, 'quiet'), ...
+            'Tooltip', 'Fit eye and beak positions in the head frame for this session and save head_calibration.mat (runEyetrackSingle, analyzeEyetrack)');
 
         r = uigridlayout(left, [1 3], 'ColumnWidth', {80, '1x', 150}, 'Padding', [0 0 0 0]);
         uilabel(r, 'Text', 'Beak labels:');
@@ -832,10 +829,11 @@ end
         end
         ui.ses.detect = uicheckbox(r, 'Text', 'Eyetrack preview', 'Value', true, ...
             'ValueChangedFcn', @(~,~) previewFrame(), ...
-            'Tooltip', ['Run the tracker with the current settings on the frame shown, in both cameras, ' ...
-            'and again whenever the frame or a setting changes. Unchecked: just show the (cropped) frames']);
-        uibutton(r, 'Text', 'Full frame', 'ButtonPushedFcn', @(~,~) runStep('Full frame', @showFullFrames, false), ...
-            'Tooltip', 'Show the uncropped frames with the crop boxes in yellow');
+            'Tooltip', ['Run eye tracking with the current parameters on the frame shown, in both cameras, ' ...
+            'and again whenever the frame or a setting changes. Unchecked: just show the frames (detectPupilCR)']);
+        ui.ses.crop = uibutton(r, 'state', 'Text', 'Crop frame', 'ValueChangedFcn', @(~,~) previewFrame(), ...
+            'Tooltip', ['On: show only the crop (cropX/cropY in the parameters table; tracking searches only there). ' ...
+            'Off: full frame with the crop as a yellow box']);
         ui.ses.frame_label = uilabel(r, 'Text', '');
         ui.ses.slider = uislider(right, 'Limits', [1 2], 'Value', 1, 'MajorTicks', [], 'MinorTicks', [], ...
             'ValueChangedFcn', @(src,~) goToFrame(src.Value), 'Tooltip', 'Whole session: drag to a frame and release to preview it');
@@ -845,7 +843,7 @@ end
         ui.ses.progress = uilabel(right, 'Text', '');
         ui.ses.progress.Layout.Column = [1 2];
 
-        setTrackerParams(p_track, 'defaults');
+        setTrackerParams(p_track, false);
     end
 
     function browseSession()
@@ -868,6 +866,7 @@ end
         d = ui.ses.folder.Value;
         if ~isempty(beak) && ~strcmp(vids.folder, d) % another session: stop labeling (clicks are already saved)
             ui.ses.detect.Value = beak.detect_was;
+            [ui.ses.ax1.Interactions, ui.ses.ax2.Interactions] = beak.interactions{:}; % zoom/pan back
             beak = [];
             fig.WindowKeyPressFcn = '';
             enableBeakReview(false);
@@ -880,12 +879,16 @@ end
         end
         [T, info] = checkSessionFolder(d, P);
         showStatusTable(ui.ses.table, T);
+        % Correct offset: checked if this session was last analyzed with it
+        f = fullfile(d, 'head_calibration.mat');
+        ui.ses.offset.Value = isfile(f) && ismember('camera_offset', who('-file', f)) && ...
+            ~isempty(getfield(load(f, 'camera_offset'), 'camera_offset'));
         f = fullfile(d, 'eye.mat');
         if isfile(f)
             s = load(f, 'p');
-            setTrackerParams(s.p, 'eye.mat (locked: delete eye.mat to change)');
+            setTrackerParams(s.p, true); % from eye.mat: locked
         elseif ~ui.ses.params.ColumnEditable(2)
-            setTrackerParams(p_track, 'carried over from the last session (editable)');
+            setTrackerParams(p_track, false); % carried over from the last session
         end
         if ~any(isnan(info.N_eye))
             ui.ses.frame.Limits = [1 min(info.N_eye)];
@@ -899,12 +902,12 @@ end
         end
     end
 
-    function setTrackerParams(p, source)
+    function setTrackerParams(p, locked)
         if numel(p) == 1; p(2) = p(1); end
         [p.pupil_start] = deal([NaN NaN]); % start each session's search fresh
         p_track = p;
         fn = fieldnames(p);
-        fn = fn(~strcmp(fn, 'pupil_start')); % runtime state, not a setting
+        fn = fn(~strcmp(fn, 'pupil_start')); % runtime state, not a parameter
         data = cell(numel(fn), 3);
         for ii = 1:numel(fn)
             data{ii,1} = fn{ii};
@@ -912,9 +915,13 @@ end
             data{ii,3} = mat2str(p(2).(fn{ii}));
         end
         ui.ses.params.Data = data;
-        locked = contains(source, 'locked');
         ui.ses.params.ColumnEditable = [false ~locked ~locked];
-        logMsg(['Tracker settings: ' source]);
+        if locked
+            ui.ses.params.Tooltip = ['Locked: this session''s eye.mat was tracked with these params. ' ...
+                'Click Delete eye.mat (retrack) to change them'];
+        else
+            ui.ses.params.Tooltip = '';
+        end
     end
 
     function editTrackerParam(evt)
@@ -923,7 +930,7 @@ end
         v = str2num(evt.NewData); %#ok<ST2NM> accepts '[500 1400]', '[]', 'NaN'
         if isempty(v) && ~any(strcmp(strtrim(evt.NewData), {'[]', ''}))
             ui.ses.params.Data{row, cam+1} = evt.PreviousData;
-            uialert(fig, sprintf('Could not read "%s" as a number or vector.', evt.NewData), 'Tracker setting');
+            uialert(fig, sprintf('Could not read "%s" as a number or vector.', evt.NewData), 'Parameters');
             return
         end
         p_track(cam).(name) = v;
@@ -932,12 +939,21 @@ end
         end
     end
 
+    function replaceParams(p)
+        % Default params / Load params: only while the table is editable (no eye.mat)
+        if ~ui.ses.params.ColumnEditable(2)
+            uialert(fig, 'Parameters are locked: this session''s eye.mat was tracked with them. Delete eye.mat (retrack) first.', 'Parameters');
+            return
+        end
+        setTrackerParams(p, false);
+    end
+
     function loadTrackerParams()
-        [f, d] = uigetfile({'eye.mat;tracker_params.mat', 'eye.mat'}, 'Load tracker settings', P.data_root);
+        [f, d] = uigetfile({'eye.mat;tracker_params.mat', 'eye.mat'}, 'Load parameters', P.data_root);
         figure(fig);
         if ~ischar(f); return; end
         s = load(fullfile(d, f), 'p');
-        setTrackerParams(s.p, fullfile(d, f));
+        replaceParams(s.p);
     end
 
     function deleteEye()
@@ -950,7 +966,7 @@ end
         delete(f);
         if isfile(fullfile(d, 'eye_triangulate.mat')); delete(fullfile(d, 'eye_triangulate.mat')); end
         logMsg(['Deleted ' f]);
-        setTrackerParams(p_track, 'from deleted eye.mat (editable)');
+        setTrackerParams(p_track, false); % from the deleted eye.mat, now editable
         refreshSession();
     end
 
@@ -963,44 +979,83 @@ end
     end
 
     function showFrame()
-        % Show the current frame (cropped) in both cameras; with "Eyetrack
-        % preview" checked, also run the tracker on it and draw the fits
+        % Show the current frame in both cameras: the crop only ("Crop frame"
+        % on) or the full frame with the crop as a yellow box. With "Eyetrack
+        % preview" checked, also run eye tracking on the crop, as tracking does,
+        % and draw the fits
         openVideos();
         ii = min(vids.N, ui.ses.frame.Value);
         p = p_track;
         [p.plot_on] = deal(1);
         [p.pupil_start] = deal([NaN NaN]);
-        [I1, I2] = readEyeFrames(vids.v1, vids.v2, ii, p);
+        [F1, F2] = readEyeFrames(vids.v1, vids.v2, ii); % full frames
+        F = {F1, F2};
         ax = [ui.ses.ax1 ui.ses.ax2];
-        I = {I1, I2};
         ui.ses.frame_label.Text = sprintf('t = %.2f s of %.1f s', ii / vids.v1.FrameRate, vids.N / vids.v1.FrameRate);
         detect = ui.ses.detect.Value;
         fit_txt = cell(1,2);
         for cam = 1:2
+            I_crop = F{cam};
+            if ~isempty(p(cam).cropX)
+                I_crop = I_crop(p(cam).cropY(1):p(cam).cropY(2), p(cam).cropX(1):p(cam).cropX(2));
+            end
+            if ui.ses.crop.Value
+                I = I_crop; shift = [0 0];
+            else
+                I = F{cam}; shift = cropOffset(cam); % fits found in the crop, drawn on the full frame
+            end
             % Reuse the image and fit lines (only their data changes, ~50x faster
             % than redrawing) unless they're gone or the image size changed
             h = frame_plots{cam};
-            if ~isfield(h, 'img') || ~isgraphics(h.img) || ~isequal(size(h.img.CData), size(I{cam})) ...
+            if ~isfield(h, 'img') || ~isgraphics(h.img) || ~isequal(size(h.img.CData), size(I)) ...
                     || (detect && ~isfield(h, 'pupil_line'))
                 cla(ax(cam));
                 h = struct('ah', ax(cam));
             end
+            detect_err = '';
             if detect
-                [pupil, cr, ~, resid, points] = detectPupilCR(I{cam}, p(cam).edge_thresh0, p(cam));
+                try
+                    [pupil, cr, ~, resid, points] = detectPupilCR(I_crop, p(cam).edge_thresh0, p(cam));
+                catch err
+                    detect_err = err.message; % still show this camera's frame below
+                end
+            end
+            if detect && isempty(detect_err)
                 crs = squeeze(cr);
-                h = detectPupilCRPlot(I{cam}, p(cam), h, pupil, crs, points);
+                pupil(1:2) = pupil(1:2) + shift;
+                crs(1:2,:) = crs(1:2,:) + shift';
+                points.px0 = points.px0 + shift(1); points.py0 = points.py0 + shift(2);
+                points.px1 = points.px1 + shift(1); points.py1 = points.py1 + shift(2);
+                h = detectPupilCRPlot(I, p(cam), h, pupil, crs, points);
                 fit_txt{cam} = sprintf('cam%i: pupil radius %.1f px, fit residual %.2f (max %.2f), %i of %i CRs', cam, ...
                     max(pupil(3:4)), resid, p(cam).ellipse_residual_thresh, nnz(~isnan(crs(1,:))), p(cam).nCRs);
                 title(ax(cam), sprintf('cam%i', cam));
             else
                 if ~isfield(h, 'img')
-                    h.img = imagesc(ax(cam), I{cam}); colormap(ax(cam), gray); axis(ax(cam), 'image');
+                    h.img = imagesc(ax(cam), I); colormap(ax(cam), gray); axis(ax(cam), 'image');
                 else
-                    h.img.CData = I{cam};
+                    h.img.CData = I;
                 end
-                title(ax(cam), sprintf('cam%i (detection off)', cam));
+                if isempty(detect_err)
+                    title(ax(cam), sprintf('cam%i (detection off)', cam));
+                else
+                    title(ax(cam), sprintf('cam%i: eye tracking error: %s', cam, detect_err), 'Interpreter', 'none');
+                end
             end
-            set(findobj(ax(cam), 'Type', 'line'), 'Visible', detect); % pupil and CR fits
+            set(findobj(ax(cam), 'Type', 'line', 'Tag', ''), 'Visible', detect && isempty(detect_err)); % pupil and CR fits
+            % Crop box on the full frame, redrawn only when the crop changes
+            box = [];
+            if ~ui.ses.crop.Value && ~isempty(p(cam).cropX)
+                box = [p(cam).cropX([1 2 2 1 1]); p(cam).cropY([1 1 2 2 1])];
+            end
+            if isempty(box)
+                delete(findobj(ax(cam), 'Tag', 'cropbox'));
+            elseif ~isfield(h, 'crop_box') || ~isgraphics(h.crop_box)
+                h.crop_box = line(ax(cam), box(1,:), box(2,:), 'Color', 'y', 'LineWidth', 1.5, ...
+                    'Tag', 'cropbox', 'PickableParts', 'none');
+            elseif ~isequal([h.crop_box.XData; h.crop_box.YData], box)
+                set(h.crop_box, 'XData', box(1,:), 'YData', box(2,:));
+            end
             cam_k = cam;
             h.img.ButtonDownFcn = @(~,evt) beakClick(cam_k, evt); % only acts while labeling the beak
             frame_plots{cam} = h;
@@ -1028,8 +1083,8 @@ end
         if nargin < 2; exact = false; end
         ii = round(min(max(ii, ui.ses.frame.Limits(1)), ui.ses.frame.Limits(2)));
         if ui.ses.skip.Value && ~exact
-            if ~isfile(fullfile(ui.ses.folder.Value, 'bird_frames.mat')) % not computed yet: ~1 min, show progress
-                runStep('Find bird frames', @birdFrames, true);
+            if ~isfile(fullfile(ui.ses.folder.Value, 'frames_in_view.mat')) % not computed yet: ~1 min, show progress
+                runStep('Find bird frames', @birdFrames, 'quiet');
                 if isempty(vids.in_view); return; end % failed (reported by runStep)
             end
             in_view = birdFrames();
@@ -1064,53 +1119,16 @@ end
         % findBirdFrames for this session (computed and saved the first time, ~1 min)
         openVideos();
         if isempty(vids.in_view)
+            had = isfile(fullfile(vids.folder, 'frames_in_view.mat'));
             B = findBirdFrames(vids.folder, P.camfilename, P, false, @setStepProgress);
             vids.in_view = B.in_view;
-            showStatusTable(ui.ses.table, checkSessionFolder(vids.folder, P)); % lists bird_frames.mat
+            if ~had
+                logMsg(sprintf('Bird in view in %i of %i frames (%.0f%%); saved frames_in_view.mat', ...
+                    sum(B.in_view), numel(B.in_view), 100*mean(B.in_view)));
+            end
+            showStatusTable(ui.ses.table, checkSessionFolder(vids.folder, P)); % lists frames_in_view.mat
         end
         in_view = vids.in_view;
-    end
-
-    function showFullFrames()
-        openVideos();
-        ii = min(vids.N, ui.ses.frame.Value);
-        [I1, I2] = readEyeFrames(vids.v1, vids.v2, ii);
-        ax = [ui.ses.ax1 ui.ses.ax2];
-        I = {I1, I2};
-        for cam = 1:2
-            cla(ax(cam));
-            imagesc(ax(cam), I{cam}); colormap(ax(cam), gray); axis(ax(cam), 'image');
-            if ~isempty(p_track(cam).cropX)
-                x = p_track(cam).cropX; y = p_track(cam).cropY;
-                hold(ax(cam), 'on');
-                plot(ax(cam), x([1 2 2 1 1]), y([1 1 2 2 1]), 'y-', 'LineWidth', 1.5);
-                hold(ax(cam), 'off');
-            end
-            title(ax(cam), sprintf('cam%i full frame (yellow = crop)', cam));
-        end
-    end
-
-    function drawCrop(cam)
-        if ~ui.ses.params.ColumnEditable(2)
-            uialert(fig, 'Settings are locked because eye.mat exists.', 'Crop'); return
-        end
-        try
-            showFullFrames();
-        catch err
-            logMsg(err.message); return
-        end
-        ax = [ui.ses.ax1 ui.ses.ax2];
-        title(ax(cam), sprintf('cam%i: drag a rectangle around the eye', cam));
-        roi = drawrectangle(ax(cam), 'Color', 'c');
-        if ~isvalid(roi) || isempty(roi.Position); return; end
-        pos = round(roi.Position); % [x y w h]
-        v = vids.(sprintf('v%i', cam));
-        I_size = [v.Height v.Width];
-        p_track(cam).cropX = [max(1, pos(1)) min(I_size(2), pos(1) + pos(3))];
-        p_track(cam).cropY = [max(1, pos(2)) min(I_size(1), pos(2) + pos(4))];
-        setTrackerParams(p_track, sprintf('crop cam%i set to x %s, y %s', cam, ...
-            mat2str(p_track(cam).cropX), mat2str(p_track(cam).cropY)));
-        showFullFrames();
     end
 
     function labelBeak(on)
@@ -1139,19 +1157,21 @@ end
             ui.ses.beak.Text = '1. Done labeling';
             fig.WindowKeyPressFcn = @(~,evt) beakKey(evt);
             enableBeakReview(true);
+            % Axes zoom/pan would take the clicks (right click zoomed); off while labeling
+            beak.interactions = {ui.ses.ax1.Interactions, ui.ses.ax2.Interactions};
+            [ui.ses.ax1.Interactions, ui.ses.ax2.Interactions] = deal([]);
             logMsg(sprintf(['Label beak: click the beak tip in cam1, then in cam2. Right click skips the frame, ' ...
                 'Esc undoes the last click. %i frames labeled so far. Click Done labeling to finish.'], nnz(~isnan(beak.p1(:,1)))));
             previewFrame();
         else
             if isempty(beak); return; end
             ui.ses.detect.Value = beak.detect_was;
+            [ui.ses.ax1.Interactions, ui.ses.ax2.Interactions] = beak.interactions{:}; % zoom/pan back
             n = nnz(~isnan(beak.p1(:,1)));
             beak = [];
             fig.WindowKeyPressFcn = '';
             enableBeakReview(false);
             ui.ses.beak.Text = '1. Label beak';
-            % 3D points are cached; recompute them with the new beak clicks
-            if isfile(fullfile(d, 'eye_triangulate.mat')); delete(fullfile(d, 'eye_triangulate.mat')); end
             logMsg(sprintf('Label beak done: %i frames labeled in beak.mat.', n));
             showStatusTable(ui.ses.table, checkSessionFolder(d, P)); % beak.mat row; stay on this frame
             previewFrame(); % redraw with the Eyetrack preview setting restored
@@ -1167,7 +1187,7 @@ end
             goToFrame(ii + P.preview_step_frames);
             return
         end
-        xy = evt.IntersectionPoint(1:2) + cropOffset(cam); % to full-frame pixels
+        xy = evt.IntersectionPoint(1:2) + shownOffset(cam); % to full-frame pixels
         if cam == 1
             beak.pending = xy;
             drawBeak();
@@ -1247,7 +1267,7 @@ end
     end
 
     function drawBeak()
-        % Red + on the beak clicks for the frame shown (and a pending cam1 click)
+        % Magenta + on the beak clicks for the frame shown (and a pending cam1 click)
         ax = [ui.ses.ax1 ui.ses.ax2];
         delete(findobj(ax, 'Tag', 'beak'));
         if isempty(beak); return; end
@@ -1256,26 +1276,25 @@ end
         pts = {beak.p1(ii,:), beak.p2(ii,:)};
         if ~isempty(beak.pending); pts{1} = beak.pending; end
         for cam = 1:2
-            xy = pts{cam} - cropOffset(cam);
+            xy = pts{cam} - shownOffset(cam);
             if any(isnan(xy)); continue; end
-            line(ax(cam), xy(1), xy(2), 'Marker', '+', 'Color', 'r', 'MarkerSize', 30, 'LineWidth', 1.5, ...
+            line(ax(cam), xy(1), xy(2), 'Marker', '+', 'Color', 'm', 'MarkerSize', 30, 'LineWidth', 1.5, ...
                 'Tag', 'beak', 'PickableParts', 'none');
         end
     end
 
     function xy = cropOffset(cam)
-        % Preview images are cropped to p_track(cam).cropX/cropY; beak.mat is in full-frame pixels
+        % Top-left of the crop (p_track(cam).cropX/cropY) in full-frame pixels, minus 1
         xy = [0 0];
         if ~isempty(p_track(cam).cropX)
             xy = [p_track(cam).cropX(1) p_track(cam).cropY(1)] - 1;
         end
     end
 
-    function showBirdFrames()
-        d = requireFolder(ui.ses.folder.Value, 'behavior session');
-        B = findBirdFrames(d, P.camfilename, P, true, @setStepProgress);
-        if strcmp(vids.folder, d); vids.in_view = B.in_view; end % used by the preview navigation
-        showStatusTable(ui.ses.table, checkSessionFolder(d, P)); % lists bird_frames.mat
+    function xy = shownOffset(cam)
+        % Shown-image pixels + this = full-frame pixels (beak.mat is in full-frame pixels)
+        xy = [0 0];
+        if ui.ses.crop.Value; xy = cropOffset(cam); end
     end
 
     function trackSession()
@@ -1295,10 +1314,14 @@ end
         % Tracking and triangulation only; QTM is not needed until analysis
         C = calibrateCameras(findCalibrationFolder(d, P.calib_root), P);
         processEyetrack(d, P.camfilename, C, false, false, true, p_track, opts);
-        w = whos('-file', fullfile(d, 'eye.mat'));
-        if any(strcmp({w.name}, 'ii'))
-            s = load(fullfile(d, 'eye.mat'), 'ii');
-            logMsg(sprintf('Tracking stopped at frame %i. Track eyes resumes from there.', s.ii));
+        s = load(fullfile(d, 'eye.mat'));
+        found = ~isnan(s.E.pupil1(:,1));
+        if isfield(s, 'ii')
+            logMsg(sprintf('Tracking stopped at frame %i (pupil found in %i frames so far). Track eyes resumes from there.', ...
+                s.ii, nnz(found)));
+        else
+            logMsg(sprintf('Tracking done: pupil found in both cameras in %i of %i frames (%.0f%%); saved eye.mat and eye_triangulate.mat', ...
+                nnz(found), numel(found), 100*mean(found)));
         end
         refreshSession();
     end
@@ -1317,34 +1340,53 @@ end
         tf = stop_requested;
     end
 
-    function requestStop()
-        stop_requested = true;
-        logMsg('Stop requested; tracking will save and stop after this frame.');
+    function trackOrStop()
+        % One button: starts tracking, or (while tracking) asks it to stop
+        if strcmp(ui.ses.track.Text, 'Stop tracking')
+            stop_requested = true;
+            ui.ses.track.Text = 'Stopping...';
+            logMsg('Stop requested; tracking will save and stop after this frame.');
+            return
+        elseif ~strcmp(ui.ses.track.Text, '2. Track eyes')
+            return % already stopping
+        end
+        ui.ses.track.Text = 'Stop tracking';
+        restore = onCleanup(@() set(ui.ses.track, 'Text', '2. Track eyes'));
+        runStep('Tracking', @trackSession, 'quiet');
     end
 
     function analyzeSession()
         d = requireFolder(ui.ses.folder.Value, 'behavior session');
-        runEyetrackSingle(d, P.downsample_eye, P);
+        [H, Ht, stats] = runEyetrackSingle(d, P.downsample_eye, P, ui.ses.offset.Value);
+        [~, name] = fileparts(d);
+        logMsg([name ': ' analysisSummary(Ht, stats) '. Saved head_calibration.mat.']);
+        if isempty(H.camera_offset)
+            logMsg(sprintf(['Camera-QTM check (figure): largest slope of eye position vs head yaw %.3f mm/deg; ' ...
+                'should be near 0. Check Correct offset and analyze again to fit and remove a camera shift.'], ...
+                max(abs(stats.yaw_slopes{1}(:)))));
+        else
+            logMsg(sprintf(['Camera offset corrected: shift [%.2f %.2f %.2f] mm, yaw %.2f deg (saved in head_calibration.mat). ' ...
+                'Largest slope of eye position vs head yaw now %.3f mm/deg (figure: grey = before).'], ...
+                H.camera_offset.t, H.camera_offset.yaw_deg, max(abs(stats.yaw_slopes{1}(:)))));
+        end
         refreshSession();
     end
 
 %% ===================== Birds tab =====================
     function buildBirdTab()
         g = uigridlayout(tab_bird, [1 2], 'ColumnWidth', {330, '1x'});
-        left = uigridlayout(g, [5 1], 'RowHeight', {92, 26, '1x', 32, 32}, 'Padding', [0 0 0 0]);
-        helpLabel(left, ['Combine all behavior sessions of a bird into one head/eye calibration (runEyetrackAll). ' ...
-            'Results go to <behavior session root>\<BIRD>_all. Beak clicks are asked for in the first behavior session only; ' ...
-            'untracked behavior sessions are tracked first, with src/defaultTrackerParams.m (not the Analyze behavior tab settings). ' ...
-            'Then plot the summary across birds (plotEyetrack).']);
-        uibutton(left, 'Text', 'Scan behavior session root', 'ButtonPushedFcn', @(~,~) scanBirds(), ...
+        left = uigridlayout(g, [4 1], 'RowHeight', {92, 26, '1x', 32}, 'Padding', [0 0 0 0]);
+        helpLabel(left, ['Combine each selected bird''s behavior sessions into one head/eye calibration, then plot the ' ...
+            'summary across birds. Computed fresh each time; nothing is saved. Sessions without videos, qtm.mat, ' ...
+            'or a same-day calibration are skipped. Untracked sessions are tracked first, with src/defaultTrackerParams.m ' ...
+            '(not the Analyze behavior tab parameters).']);
+        uibutton(left, 'Text', 'Scan behavior session root', 'ButtonPushedFcn', @(~,~) runStep('Scan', @scanBirds, false), ...
             'Tooltip', 'List birds from folder names <BIRD>_<YYMMDD> in the behavior session root');
         ui.bird.list = uilistbox(left, 'Multiselect', 'on', 'Items', {}, 'ValueChangedFcn', @(~,~) showBirdSessions());
-        uibutton(left, 'Text', 'Run selected birds', 'FontWeight', 'bold', ...
-            'ButtonPushedFcn', @(~,~) runStep('Bird analysis', @runBirds, false), ...
-            'Tooltip', 'For each selected bird, track any untracked sessions and combine all sessions (runEyetrackAll); saves <BIRD>_all');
-        uibutton(left, 'Text', 'Summary plot (birds with _all results)', ...
-            'ButtonPushedFcn', @(~,~) runStep('Summary', @summaryPlot, true), ...
-            'Tooltip', 'Plot eye angles across the selected birds (or all listed birds) that have <BIRD>_all results (plotEyetrack)');
+        uibutton(left, 'Text', 'Analyze selected birds', 'FontWeight', 'bold', ...
+            'ButtonPushedFcn', @(~,~) runStep('Bird analysis', @runBirds, 'quiet'), ...
+            'Tooltip', ['For each selected bird, combine its sessions (tracking any untracked ones first), ' ...
+            'then plot eye angles across the birds (runEyetrackAll, plotEyetrack)']);
         ui.bird.table = uitable(g, 'RowName', {}, ...
             'ColumnName', {'Behavior session', 'Videos', 'qtm.mat', 'beak.mat', 'eye.mat', 'Calibration', 'head_calibration'});
     end
@@ -1356,9 +1398,14 @@ end
         names = {a([a.isdir]).name};
         tok = regexp(names, '^(.+)_\d{6}[^_]*$', 'tokens', 'once');
         birds = unique(cellfun(@(t) t{1}, tok(~cellfun(@isempty, tok)), 'UniformOutput', false));
+        if isempty(birds)
+            error(['No session folders named <BIRD>_<YYMMDD> in %s. Set the behavior session root ' ...
+                'in the Settings tab to the folder that contains them.'], d);
+        end
         ui.bird.list.Items = birds;
-        ui.bird.list.Value = {};
-        logMsg(sprintf('Found %i birds in %s', numel(birds), d));
+        ui.bird.list.Value = birds; % show every bird's sessions; click to narrow down
+        showBirdSessions();
+        logMsg(sprintf('Found %i birds in %s: %s', numel(birds), d, strjoin(birds, ', ')));
     end
 
     function showBirdSessions()
@@ -1379,29 +1426,30 @@ end
                     isfile(fullfile(f, 'beak.mat')), isfile(fullfile(f, 'eye.mat')), has_cal, ...
                     isfile(fullfile(f, 'head_calibration.mat'))])]; %#ok<AGROW>
             end
-            rows(end+1, :) = [{[b{1} '_all']}, {'', '', '', '', ''}, ...
-                yesNo(isfile(fullfile(P.data_root, [b{1} '_all'], 'head_calibration.mat')))]; %#ok<AGROW>
         end
         ui.bird.table.Data = rows;
     end
 
     function runBirds()
+        % Combine each selected bird's sessions, then plot across birds (nothing saved)
         birds = ui.bird.list.Value;
         if isempty(birds); error('Select at least one bird'); end
+        Ht_all = table; stats_all = table;
         for ii = 1:numel(birds)
-            logMsg(sprintf('Running %s (%i of %i)', birds{ii}, ii, numel(birds)));
-            runEyetrackAll(fullfile(P.data_root, [birds{ii} '_*']), P.downsample_eye, 1, P);
+            setStepProgress((ii - 1)/numel(birds));
+            logMsg(sprintf('Analyzing %s (%i of %i)', birds{ii}, ii, numel(birds)));
+            try
+                [~, Ht, stats, skipped] = runEyetrackAll(fullfile(P.data_root, [birds{ii} '_*']), P.downsample_eye, 0, P); % no per-bird figures
+            catch err
+                logMsg(sprintf('%s not analyzed: %s', birds{ii}, err.message)); % e.g. every session skipped
+                continue
+            end
+            if ~isempty(skipped); logMsg(['Skipped ' strjoin(skipped, newline)]); end
+            logMsg(sprintf('%s: %s', birds{ii}, analysisSummary(Ht, stats)));
+            Ht_all = [Ht_all; Ht]; stats_all = [stats_all; stats]; %#ok<AGROW>
         end
-        showBirdSessions();
-    end
-
-    function summaryPlot()
-        birds = ui.bird.list.Value;
-        if isempty(birds); birds = ui.bird.list.Items; end
-        has = cellfun(@(b) isfile(fullfile(P.data_root, [b '_all'], 'head_calibration_stats.mat')), birds);
-        if ~any(has); error('No <BIRD>_all results yet for the selected birds'); end
-        plotEyetrack(P.data_root, cellfun(@(b) [b '_*'], birds(has), 'UniformOutput', false));
-        drawnow
+        if height(Ht_all) == 0; error('None of the selected birds could be analyzed (see the log)'); end
+        logMsg(['Across birds: ' plotEyetrack(Ht_all, stats_all)]);
     end
 
 %% ===================== Shared helpers =====================
@@ -1416,7 +1464,7 @@ end
 
     function releaseCameras()
         % Figure deleted (closed, or deleted any other way): finish any
-        % recording and disconnect, so SpinView or a new GUI can open the cameras.
+        % recording and disconnect, so another program or a new GUI can open the cameras.
         % Each step is attempted even if an earlier one fails.
         steps = {@() stop(rec.timer), @() delete(rec.timer), @() stopEyeRecording(rec.state), ...
             @() stopLive(), @() closeEyeCameras(cams)};
@@ -1431,11 +1479,15 @@ end
         rec.state = []; cams = [];
     end
 
-    function runStep(name, fn, capture)
-        % Run fn, report errors in the log and a dialog. If capture, copy the
-        % command window output into the log. The status bar only shows what's
-        % running (with moving dots and elapsed time); results go to the log,
-        % "done" only for steps over 2 s so quick clicks don't fill it.
+    function runStep(name, fn, output)
+        % Run fn, report errors in the log and a dialog (full error report in
+        % the command window). output: what happens to text fn prints
+        %   true    - goes to the log instead of the command window
+        %   'quiet' - discarded (fn logs its own summary)
+        %   false   - left in the command window
+        % The status bar only shows what's running (moving dots, elapsed time);
+        % results go to the log, "done" only for steps over 2 s so quick clicks
+        % don't fill it.
         t0 = tic;
         step_progress = NaN;
         busy = timer('ExecutionMode', 'fixedSpacing', 'Period', 0.5, 'BusyMode', 'drop', ...
@@ -1444,25 +1496,24 @@ end
         fig.Pointer = 'watch';
         drawnow
         start(busy);
-        if capture
-            tmp = [tempname '.txt'];
-            diary(tmp);
-        end
+        txt = '';
         try
-            fn();
+            if isequal(output, false)
+                fn();
+            else
+                txt = evalc('fn();');
+            end
             ok = true;
         catch err
             ok = false;
         end
         stop(busy); delete(busy);
         if isvalid(fig); status_label.Text = 'Ready'; end
-        if capture
-            diary off
-            if isfile(tmp)
-                txt = fileread(tmp);
-                delete(tmp);
-                if ~isempty(strtrim(txt)); logMsg(strtrim(txt)); end
-            end
+        if isequal(output, true) && ~isempty(strtrim(txt))
+            logMsg(strtrim(txt));
+        elseif strcmp(output, 'quiet') % keep warnings (e.g. reversed eye orientation, cropped QTM)
+            w = regexp(txt, '(?m)^Warning: [^\n]*', 'match');
+            if ~isempty(w); logMsg(strjoin(unique(w, 'stable'), newline)); end
         end
         if isvalid(fig); fig.Pointer = 'arrow'; end
         if ok && toc(t0) > 2
@@ -1516,12 +1567,19 @@ P = eyetrackParams();
 if ispref('eyetrackGUI', 'P')
     saved = getpref('eyetrackGUI', 'P');
     % only the fields editable in the Settings tab; the rest always come from eyetrackParams.m
-    editable = {'calib_root', 'data_root', 'square_size', 'axes_thresh', 'downsample_eye', 'beak_skip_frames'};
+    editable = {'calib_root', 'data_root', 'square_size', 'downsample_eye'};
     fn = intersect(fieldnames(saved), editable);
     for ii = 1:numel(fn)
         P.(fn{ii}) = saved.(fn{ii});
     end
 end
+end
+
+function txt = analysisSummary(Ht, stats)
+% One log line for analyzeEyetrack results (head frame: theta = horizontal, phi = from vertical)
+txt = sprintf(['eye theta %.1f, phi %.1f deg; beak theta %.1f, phi %.1f deg; ' ...
+    'eye angle SD %.2f horiz, %.2f vert deg; frames used: %i left eye, %i right eye'], Ht.theta_eye, Ht.phi_eye, ...
+    Ht.theta_beak, Ht.phi_beak, stats.std_theta, stats.std_phi, stats.nframes(1), stats.nframes(2));
 end
 
 function helpLabel(parent, txt)
@@ -1570,7 +1628,7 @@ items = struct( ...
     'file', {'cam%i\<next>.bmp', 'lights\cam%i_light1.bmp', 'lights\cam%i_light1_checkerboard.bmp', ...
              'lights\cam%i_light2.bmp', 'lights\cam%i_light2_checkerboard.bmp', 'axes\cam%i.bmp'}, ...
     'kind', {'checkerboard', 'led', 'mirror', 'led', 'mirror', 'axes'}, ...
-    'hint', {'Hold the checkerboard still in a new position and angle for each pair (4-10 pairs).', ...
+    'hint', {'Hold the checkerboard still in a new position and angle for each pair (4-6 pairs).', ...
              'Orient the mirror so light 1 is visible in both cameras. Save the LED spot and the mirror checkerboard without moving anything.', ...
              'Orient the mirror so light 1 is visible in both cameras. Save the LED spot and the mirror checkerboard without moving anything.', ...
              'Orient the mirror so light 2 is visible in both cameras. Save the LED spot and the mirror checkerboard without moving anything.', ...

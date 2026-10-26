@@ -202,9 +202,7 @@ test = a*c;
 switch (1)
 case (test>0),  status = '';
 case (test==0), status = 'Parabola found';  
-    warning( 'fit_ellipse: Did not locate an ellipse' );
 case (test<0),  status = 'Hyperbola found'; 
-    warning( 'fit_ellipse: Did not locate an ellipse' );
 end
 
 % if we found an ellipse return it's data

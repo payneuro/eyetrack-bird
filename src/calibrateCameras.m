@@ -71,7 +71,7 @@ if ~exist(fullfile(filepath_camera_calib, 'axes.mat'),'file') || any(strcmp(forc
     filepath_axes = fullfile(filepath_camera_calib, 'axes');
 
     % Take image where the targets are saturated
-    A  = calibrateAxesBW(filepath_axes, C.stereo_params, P.axes_thresh);
+    A  = calibrateAxesBW(filepath_axes, C.stereo_params, P.axes_thresh, P.axes_leg_tol);
 
     %% Save results
     save(fullfile(filepath_camera_calib,'axes.mat'),'A');

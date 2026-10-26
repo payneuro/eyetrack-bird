@@ -1,15 +1,17 @@
-function [H, Ht, stats] = runEyetrackAll(filepath_eye_root, downsample_eye, ploton, P, track_opts)
-% [H, Ht, stats] = runEyetrackAll(filepath_eye_root, downsample_eye, ploton, P, track_opts)
+function [H, Ht, stats, skipped] = runEyetrackAll(filepath_eye_root, downsample_eye, ploton, P, track_opts)
+% [H, Ht, stats, skipped] = runEyetrackAll(filepath_eye_root, downsample_eye, ploton, P, track_opts)
 % Loop eye tracking over all of the files starting with given string and
 % combine them into one head/eye calibration for the bird.
 % filepath_eye_root - find all folders with this root, e.g. Z:\...\behavior\HC13_2*
 % downsample_eye - downsampling between QTM -> eye cameras (usually 5 or 6) - must be the
 % same for all files to be combined
-% ploton - plot eye angle diagnostics (default 1)
+% ploton - plot the per-bird diagnostic figures (default 1)
 % P - eyetrackParams (optional)
 % track_opts - passed to trackEye (optional)
 % x axis = mean of p_eyes to beak. y axis pointing left, z axis up
-% Results are saved to <bird>_all next to the session folders.
+% Nothing is saved: the combined results are returned (Ht.folder = bird name).
+% Sessions missing a video, qtm.mat, or a processed same-day calibration are
+% skipped; skipped lists them with the reason.
 
 if ~exist('ploton','var') || isempty(ploton); ploton = 1; end
 if ~exist('P','var') || isempty(P); P = eyetrackParams(); end
@@ -19,11 +21,33 @@ if exist('downsample_eye','var') && ~isempty(downsample_eye)
 end
 
 data_root = fileparts(filepath_eye_root);
+[~, bird] = fileparts(filepath_eye_root);
+bird = strtok(bird, '_'); % e.g. HC13 from ...HC13_2*
 a = dir(filepath_eye_root);
-a = a([a.isdir] & ~endsWith({a.name}, '_all')); % skip combined-results folder
+a = a([a.isdir] & ~endsWith({a.name}, '_all')); % skip old <bird>_all results folders (no longer made)
 folders = {a.name};
 if isempty(folders)
     error('No session folders match %s', filepath_eye_root)
+end
+
+% Skip sessions that can't be analyzed: missing a video, qtm.mat, or a
+% processed calibration from the same day
+needed = {'Video cam1', 'Video cam2', 'QTM qtm.mat', 'Calibration'};
+keep = true(size(folders));
+skipped = {};
+for ii = 1:numel(folders)
+    T = checkSessionFolder(fullfile(data_root, folders{ii}), P);
+    T = T(ismember(T.item, needed), :);
+    if ~all(T.ok)
+        keep(ii) = false;
+        bad = T(~T.ok, :);
+        skipped{end+1} = sprintf('%s: %s', folders{ii}, strjoin(strcat(bad.item, {' ('}, bad.note, {')'}), '; ')); %#ok<AGROW>
+        warning('Skipping %s', skipped{end});
+    end
+end
+folders = folders(keep);
+if isempty(folders)
+    error('None of the session folders matching %s can be analyzed (see warnings above)', filepath_eye_root)
 end
 Q_all = [];
 Q_all.N_head = 0;
@@ -48,7 +72,7 @@ dist_pc_all = [];
 for ii  = 1:length(folders)
     filepath_eye = fullfile(data_root, folders{ii});
 
-    %% Run eye tracking (will skip if already run). Beak clicks only for the first session
+    %% Run eye tracking (will skip if already run). Beak clicks only for the first session analyzed
     opts = struct('run_beak', ii==1, 'resume_beak', false, 'resume_eye', true, ...
         'crop_qtm', true, 'track_opts', track_opts);
     S = processSession(filepath_eye, P, opts);
@@ -93,8 +117,6 @@ if ploton
     pitch_eye = atan2(v_eye(:,3), sqrt(v_eye(:,1).^2 + v_eye(:,2).^2));
     yawd_eye = rad2deg(yaw_eye);
     pitchd_eye = rad2deg(pitch_eye);
-    [~, bird] = fileparts(filepath_eye_root);
-    bird = strtok(bird, '_');
     figure; plot(v_eye,'.'); legend({'x','y','z'})
     xlabel('Eye frame # (all sessions)'); ylabel('Unit vector component')
     title([bird ': eye vector (pupil - cornea), common frame'], 'Interpreter', 'none')
@@ -110,24 +132,11 @@ if ploton
 end
 
 
-%% Analyze results for all session for this bird
-a = strfind(filepath_eye_root,'_');
-filepath_eye = [filepath_eye_root(1:a(end)-1) '_all'];
-disp(filepath_eye)
-
-[H, Ht, stats, Eout] = analyzeEyetrack(E_all, p_pupil_all, p_cornea_all, p_beak_all, Q_all,  P.downsample_eye, dist_pc_all);
+%% Analyze results for all sessions of this bird (returned, not saved)
+[H, Ht, stats] = analyzeEyetrack(E_all, p_pupil_all, p_cornea_all, p_beak_all, Q_all,  P.downsample_eye, dist_pc_all, ploton);
 drawnow;
 H.folder_eye_calib = folders;
 H.folder_camera_calib = '';
-Ht.folder = {filepath_eye};
+Ht.folder = {bird};
 disp(Ht)
 disp(stats)
-
-
-%% Save results
-if ~isfolder(filepath_eye); mkdir(filepath_eye); end
-save(fullfile(filepath_eye, 'head_calibration.mat'),'-struct','H');
-save(fullfile(filepath_eye, 'head_calibration_template.mat'),'Ht');
-save(fullfile(filepath_eye, 'head_calibration_stats.mat'),'stats');
-save(fullfile(filepath_eye, 'head_calibration_data.mat'),'-struct','Eout');
-save(fullfile(filepath_eye, 'head_calibration_qualisys.mat'),'-struct','Q_all');

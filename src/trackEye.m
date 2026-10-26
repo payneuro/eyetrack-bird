@@ -48,7 +48,7 @@ in_view = true(N_eye, 1);
 if opts.skip_empty_frames
     B = findBirdFrames(filepath_eye, camfilename, opts.P);
     n = min(N_eye, numel(B.in_view));
-    in_view(1:n) = B.in_view(1:n); % kept in bird_frames.mat, not E (E's fields all get filtered later)
+    in_view(1:n) = B.in_view(1:n); % kept in frames_in_view.mat, not E (E's fields all get filtered later)
 end
 n_done = cumsum(in_view); % frames to track up to each frame, for progress_fcn
 

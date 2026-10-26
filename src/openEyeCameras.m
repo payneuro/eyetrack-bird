@@ -4,7 +4,7 @@ function cams = openEyeCameras(cam_serials)
 % Toolbox GenICam (gentl) adaptor. cams(k) is camera k (cam1 = left,
 % cam2 = right), matched by serial number, not by the adaptor's device order.
 % cams(k).vid is the videoinput, cams(k).src its source (camera settings).
-% Close with closeEyeCameras(cams). SpinView must not be connected to them.
+% Close with closeEyeCameras(cams). No other program (e.g. SpinView) may be connected to them.
 
 old = imaqfind('Type', 'videoinput'); % left over from a GUI that closed without disconnecting
 old = old(arrayfun(@(v) strcmpi(imaqhwinfo(v, 'AdaptorName'), 'gentl'), old));
@@ -27,6 +27,6 @@ end
 missing = cellfun(@isempty, {cams.vid});
 if any(missing)
     closeEyeCameras(cams);
-    error('Camera(s) not found: serial %s. Check USB and that SpinView is closed.', ...
+    error('Camera(s) not found: serial %s. Check USB and that no other program (e.g. SpinView) is using them.', ...
         strjoin(cam_serials(missing), ', '));
 end

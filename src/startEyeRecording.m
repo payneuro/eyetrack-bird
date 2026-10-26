@@ -105,7 +105,7 @@ is_on = strcmp(src.TriggerMode, 'On');
 end
 
 function setHardwareTrigger(src, line)
-% Set every trigger setting explicitly (don't rely on what SpinView left):
+% Set every trigger setting explicitly (don't rely on what's saved in the camera):
 % each rising edge on this input line starts one frame
 info = propinfo(src);
 src.TriggerMode = 'Off'; % the camera only accepts trigger changes while off

@@ -24,8 +24,8 @@ rows = {
         exist('imgaussfilt', 'file') > 0, sprintf(get_addon, 'Image Processing Toolbox')
     'Signal Processing Toolbox', 'Required: tracking, cleaning', ...
         exist('filtfilt', 'file') > 0, sprintf(get_addon, 'Signal Processing Toolbox')
-    'Spinnaker SDK (SpinView)', 'Required: recording; camera driver for MATLAB capture', ...
-        spinnakerInstalled(), 'Download the full Spinnaker SDK for Windows x64 from Teledyne FLIR (includes SpinView, USB3 drivers, and the GenTL producer)'
+    'Spinnaker SDK (camera driver)', 'Required: capture and recording (USB driver and GenTL producer for MATLAB)', ...
+        spinnakerInstalled(), 'Download the Spinnaker SDK for Windows x64 from Teledyne FLIR. It includes SpinView, which isn''t needed: the GUI sets the camera features'
     'Qualisys Track Manager (QTM)', 'Required: head tracking, trigger, axes calibration', ...
         qtmInstalled(), 'Install from Qualisys'
     'Image Acquisition Toolbox', 'Required: calibration capture, recording', ...
@@ -40,7 +40,7 @@ rows = {
 T = cell2table(rows, 'VariableNames', {'item', 'needed_for', 'ok', 'how_to_install'});
 T.ok = logical(T.ok);
 T.url = repmat({''}, height(T), 1);
-T.url{strcmp(T.item, 'Spinnaker SDK (SpinView)')} = 'https://www.teledynevisionsolutions.com/products/spinnaker-sdk/';
+T.url{strcmp(T.item, 'Spinnaker SDK (camera driver)')} = 'https://www.teledynevisionsolutions.com/products/spinnaker-sdk/';
 T.url{strcmp(T.item, 'ffmpeg')} = 'https://github.com/GyanD/codexffmpeg/releases/tag/7.1.1';
 T = [T(~T.ok,:); T(T.ok,:)]; % missing first
 end

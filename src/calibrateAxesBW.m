@@ -1,5 +1,6 @@
-function  A = calibrateAxesBW(filepath_axes, stereo_params, thresh)
-
+function  A = calibrateAxesBW(filepath_axes, stereo_params, thresh, leg_tol)
+% leg_tol - (mm) largest allowed difference between the camera and QTM triangle legs (default P.axes_leg_tol)
+if ~exist('leg_tol', 'var') || isempty(leg_tol); leg_tol = eyetrackParams().axes_leg_tol; end
 
 %% Get the axes in the QTM reference frame
 rprops1 = dir(fullfile(filepath_axes, '*.mat'));
@@ -78,9 +79,9 @@ fprintf('EYE AXES:  x dist: %.2f mm, y dist %.2f mm\n',sqrt(sum((p1_eye-p0_eye).
 % The cameras and QTM must see the same triangle (past calibrations agree to < 0.3 mm)
 legs_eye = [norm(p1_eye - p0_eye), norm(p2_eye - p0_eye)];
 legs_qtm = [norm(p1_head - p0_head), norm(p2_head - p0_head)];
-if any(abs(legs_eye - legs_qtm) > 2)
+if any(abs(legs_eye - legs_qtm) > leg_tol)
     error(['The axes markers found by the cameras (legs %.1f and %.1f mm) don''t match QTM''s triangle ' ...
-        '(%.1f and %.1f mm). Check the axes images and the QTM labels p0, px, py.'], legs_eye, legs_qtm);
+        '(%.1f and %.1f mm) within %g mm. Check the axes images and the QTM labels p0, px, py.'], legs_eye, legs_qtm, leg_tol);
 end
 
 vx_eye = (p1_eye-p0_eye)/norm(p1_eye-p0_eye);

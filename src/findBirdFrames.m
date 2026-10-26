@@ -9,7 +9,7 @@ function B = findBirdFrames(filepath_eye, camfilename, P, show, progress_fcn)
 % has the bird if more than P.bird_frac_thresh of its pixels differ from the
 % background by more than P.bird_pixel_thresh gray levels, in either camera.
 % In-view stretches are padded by P.bird_pad_s on each side.
-% Results are cached in bird_frames.mat and recomputed if the settings change.
+% Results are cached in frames_in_view.mat and recomputed if the settings change.
 %
 % B.in_view  - N x 1 logical, true = track this frame
 % B.frac     - N x 2 fraction of changed pixels per camera
@@ -21,7 +21,7 @@ if ~exist('show', 'var'); show = false; end
 if ~exist('progress_fcn', 'var'); progress_fcn = @(f) []; end
 settings = struct('frac_thresh', P.bird_frac_thresh, 'pad_s', P.bird_pad_s);
 measure = struct('shrink', P.bird_shrink, 'pixel_thresh', P.bird_pixel_thresh); % changing these means re-reading the videos
-cache = fullfile(filepath_eye, 'bird_frames.mat');
+cache = fullfile(filepath_eye, 'frames_in_view.mat');
 B = [];
 if isfile(cache)
     B = getfield(load(cache), 'B');
@@ -110,7 +110,7 @@ function plotBirdFrames(B, filepath_eye)
 [~, session] = fileparts(filepath_eye);
 N = numel(B.in_view);
 t = (1:N)'/B.fps;
-fig = figure('Name', ['Bird frames ' session], 'Position', [60 60 1300 750]);
+fig = figure('Name', ['Bird frames ' session]);
 tl = tiledlayout(fig, 2, 2, 'TileSpacing', 'compact', 'Padding', 'compact');
 for cam = 1:2
     ax = nexttile(tl);

@@ -9,7 +9,7 @@ function S = processSession(filepath_eye, P, opts)
 %   resume_beak (false) add more beak clicks to an existing beak.mat
 %   resume_eye  (true)  resume a partial eye.mat
 %   crop_qtm    (true)  drop QTM frames past the end of the eye videos
-%   p_track     ([])    tracker settings for a new eye.mat (default defaultTrackerParams)
+%   p_track     ([])    tracker parameters for a new eye.mat (default defaultTrackerParams)
 %   track_opts  (struct) passed to trackEye
 %
 % S has fields E, p_pupil, p_cornea, p_beak (common frame), Q (common frame),
@@ -38,7 +38,7 @@ N_head = Q.Frames;
 
 %% Run eye tracking (will skip if already run)
 [E, p_pupil_cam, p_cornea_cam, p_beak_cam] = processEyetrack(filepath_eye, P.camfilename, C, ...
-    opts.resume_beak, opts.run_beak, opts.resume_eye, opts.p_track, opts.track_opts, P.beak_skip_frames);
+    opts.resume_beak, opts.run_beak, opts.resume_eye, opts.p_track, opts.track_opts, P.preview_step_frames);
 [p_pupil_cam, p_cornea_cam, dist_pc] = correctLengthP_CR(p_pupil_cam, p_cornea_cam);
 N_eye = length(E.resid1);
 fprintf('Video frames %i, predicted QTM frames %i, actual QTM frames %i\n', ...

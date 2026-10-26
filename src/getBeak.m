@@ -1,15 +1,14 @@
-function [beak, flag_newdata] = getBeak(filepath_eye, camfilename, resume_beak, run_beak, DI)
-% [beak, flag_newdata] = getBeak(filepath_eye, camfilename, resume_beak, run_beak, DI)
-% Click the beak tip in both cameras every DI frames (default 45).
+function beak = getBeak(filepath_eye, camfilename, resume_beak, run_beak, DI)
+% beak = getBeak(filepath_eye, camfilename, resume_beak, run_beak, DI)
+% Click the beak tip in both cameras every DI frames (default P.preview_step_frames).
 % Left click = accept, right click = skip ahead, Enter = finish.
 % Returns beak.p1/p2 (N x 2 pixels, NaN = not clicked). Loads beak.mat if it
 % exists; resume_beak adds clicks to it. With run_beak false and no beak.mat,
 % returns [].
 
 if ~exist('DI','var') || isempty(DI)
-    DI = 45; % Number of frames to skip each time
+    DI = eyetrackParams().preview_step_frames; % frames to skip each time
 end
-flag_newdata = false;
 
 if exist(fullfile(filepath_eye,'beak.mat'),'file')% Add more beak points
     beak = load(fullfile(filepath_eye,'beak.mat'));
@@ -28,7 +27,6 @@ if ~run_beak
     return
 end
 
-flag_newdata = true;
 
 %% Load the high res video
 [vid1, vid2] = openEyeVideos(filepath_eye, camfilename);
