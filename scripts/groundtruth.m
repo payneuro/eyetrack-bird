@@ -34,7 +34,7 @@ downsample_eye = 8;
 
 filename = 'qtm';
 [~, session] = fileparts(datadir); % for figure titles
-addpath(fullfile(fileparts(fileparts(mfilename('fullpath'))), 'src'))
+addpath(genpath(fullfile(fileparts(fileparts(mfilename('fullpath'))), 'src'))) % src and src/plotting
 
 %% Motor + qtm alignment in time and space
 fprintf('[%s] Loading motor and QTM data\n', datestr(now,'HH:MM:SS'));

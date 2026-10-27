@@ -15,7 +15,7 @@ function varargout = eyetrackGUI()
 % their own windows and stay open. Command window output is copied to the log.
 
 code_dir = fileparts(fileparts(mfilename('fullpath')));
-addpath(fullfile(code_dir, 'src'));
+addpath(genpath(fullfile(code_dir, 'src'))); % src and src/plotting
 
 P = loadSettings();
 p_track = defaultTrackerParams();
@@ -805,7 +805,7 @@ end
         r = uigridlayout(left, [1 3], 'ColumnWidth', {80, '1x', 150}, 'Padding', [0 0 0 0]);
         uilabel(r, 'Text', 'Beak labels:');
         ui.ses.beak_list = uidropdown(r, 'Items', {'(Label beak to review)'}, 'Enable', 'off', ...
-            'ValueChangedFcn', @(src,~) goToFrame(src.Value, true), ...
+            'ValueChangedFcn', @(src,~) pickBeakLabel(src.Value), ...
             'Tooltip', 'Frames with beak clicks: pick one to show it (while Label beak is on)');
         ui.ses.beak_delete = uibutton(r, 'Text', 'Delete label on this frame', 'Enable', 'off', ...
             'ButtonPushedFcn', @(~,~) deleteBeakLabel(), ...
@@ -904,6 +904,11 @@ end
 
     function setTrackerParams(p, locked)
         if numel(p) == 1; p(2) = p(1); end
+        % Older eye.mat files lack newer fields (e.g. cropX/cropY): use the defaults
+        p0 = defaultTrackerParams();
+        for name = setdiff(fieldnames(p0), fieldnames(p))'
+            [p.(name{1})] = deal(p0(1).(name{1}));
+        end
         [p.pupil_start] = deal([NaN NaN]); % start each session's search fresh
         p_track = p;
         fn = fieldnames(p);
@@ -1157,9 +1162,11 @@ end
             ui.ses.beak.Text = '1. Done labeling';
             fig.WindowKeyPressFcn = @(~,evt) beakKey(evt);
             enableBeakReview(true);
-            % Axes zoom/pan would take the clicks (right click zoomed); off while labeling
+            % Pan and other click interactions would take the clicks (right click
+            % zoomed); keep only scroll-wheel zoom while labeling
             beak.interactions = {ui.ses.ax1.Interactions, ui.ses.ax2.Interactions};
-            [ui.ses.ax1.Interactions, ui.ses.ax2.Interactions] = deal([]);
+            [ui.ses.ax1.Interactions, ui.ses.ax2.Interactions] = deal(zoomInteraction);
+            focus(fig); % so Esc reaches WindowKeyPressFcn
             logMsg(sprintf(['Label beak: click the beak tip in cam1, then in cam2. Right click skips the frame, ' ...
                 'Esc undoes the last click. %i frames labeled so far. Click Done labeling to finish.'], nnz(~isnan(beak.p1(:,1)))));
             previewFrame();
@@ -1182,6 +1189,7 @@ end
         % Click on a preview image while labeling: cam1 first, then cam2.
         % Right click skips this frame (jumps ahead without saving).
         if isempty(beak); return; end
+        focus(fig); % clicking the image can leave keyboard focus elsewhere, so Esc was missed
         ii = ui.ses.frame.Value;
         if (isprop(evt, 'Button') || isfield(evt, 'Button')) && evt.Button == 3
             goToFrame(ii + P.preview_step_frames);
@@ -1239,16 +1247,27 @@ end
     end
 
     function updateBeakList()
-        % Dropdown of labeled frames, selecting the one shown if it's labeled
+        % Dropdown of labeled frames. It always shows the frame in the preview:
+        % that frame if it's labeled, otherwise the first item (0 = not labeled).
+        % Delete is only enabled on a labeled frame.
+        ii = ui.ses.frame.Value;
         labeled = find(~isnan(beak.p1(:,1)))';
-        if isempty(labeled)
-            ui.ses.beak_list.ItemsData = {}; ui.ses.beak_list.Items = {'(none yet)'};
-            return
-        end
         ui.ses.beak_list.ItemsData = {};
-        ui.ses.beak_list.Items = arrayfun(@(k) sprintf('frame %i', k), labeled, 'UniformOutput', false);
-        ui.ses.beak_list.ItemsData = num2cell(labeled);
-        if any(labeled == ui.ses.frame.Value); ui.ses.beak_list.Value = ui.ses.frame.Value; end
+        ui.ses.beak_list.Items = [{sprintf('frame %i: not labeled (%i labeled)', ii, numel(labeled))}, ...
+            arrayfun(@(k) sprintf('frame %i', k), labeled, 'UniformOutput', false)];
+        ui.ses.beak_list.ItemsData = [{0}, num2cell(labeled)];
+        is_labeled = any(labeled == ii);
+        ui.ses.beak_list.Value = ii * is_labeled;
+        ui.ses.beak_delete.Enable = is_labeled;
+    end
+
+    function pickBeakLabel(ii)
+        % Dropdown pick: show that labeled frame (the "not labeled" item stays put)
+        if ii > 0
+            goToFrame(ii, true);
+        else
+            updateBeakList();
+        end
     end
 
     function saveBeak()
@@ -1260,7 +1279,7 @@ end
     function enableBeakReview(on)
         [ui.ses.beak_list.Enable, ui.ses.beak_delete.Enable] = deal(on);
         if on
-            updateBeakList();
+            updateBeakList(); % sets Delete for the frame shown
         else
             ui.ses.beak_list.ItemsData = {}; ui.ses.beak_list.Items = {'(Label beak to review)'};
         end
@@ -1272,7 +1291,7 @@ end
         delete(findobj(ax, 'Tag', 'beak'));
         if isempty(beak); return; end
         ii = ui.ses.frame.Value;
-        if any(cellfun(@(k) isequal(k, ii), ui.ses.beak_list.ItemsData)); ui.ses.beak_list.Value = ii; end
+        updateBeakList(); % dropdown and Delete follow the frame shown
         pts = {beak.p1(ii,:), beak.p2(ii,:)};
         if ~isempty(beak.pending); pts{1} = beak.pending; end
         for cam = 1:2

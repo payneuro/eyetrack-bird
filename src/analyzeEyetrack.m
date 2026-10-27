@@ -310,7 +310,7 @@ for k = 1:size(views, 1)
 end
 lgd = legend(h, {'Eye per frame (with gaze vector)', 'Mean eye position', 'Mean gaze vector', 'Head origin to beak'});
 lgd.Layout.Tile = 'south'; % below all views, so they stay the same size
-fixticks
+set(tl.Children(isgraphics(tl.Children, 'axes')), 'TickDir', 'out', 'Box', 'off') % fixticks warns on tiled axes
 drawnow
 end
 

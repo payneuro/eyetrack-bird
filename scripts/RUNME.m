@@ -1,7 +1,7 @@
 % Scripted version of the pipeline. For the GUI, run eyetrackGUI.
 % Paths and constants are in src/eyetrackParams.m.
 code_root = fileparts(fileparts(mfilename('fullpath')));
-addpath(fullfile(code_root,'src'));
+addpath(genpath(fullfile(code_root,'src'))); % src and src/plotting
 P = eyetrackParams();
 data_root = P.data_root;
 ploton = 1;

@@ -94,7 +94,6 @@ crop = {};
 if isfield(p, 'cropX'); crop = {p.cropX, p.cropY}; end
 inputs = {E.pupil1, E.pupil2, E.cr1, E.cr2, crop, beak.p1, beak.p2, ...
     toStruct(C.stereo_params), C.p_light1, C.p_light2};
-md = java.security.MessageDigest.getInstance('MD5');
-md.update(getByteStreamFromArray(inputs));
-h = sprintf('%02x', typecast(md.digest(), 'uint8'));
+md = System.Security.Cryptography.MD5.Create(); % .NET: MATLAB may run without Java
+h = sprintf('%02x', uint8(md.ComputeHash(getByteStreamFromArray(inputs))));
 end
